@@ -51,7 +51,7 @@ load_runtime_context() {
     cmd+=(--repo "$TEAM_REPO_ARG")
   fi
   if [[ -n "${TEAM_STATE_DIR_ARG:-}" ]]; then
-    cmd+=(--coord-dir "$TEAM_STATE_DIR_ARG")
+    cmd+=(--state-dir "$TEAM_STATE_DIR_ARG")
   fi
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
     cmd+=(--config "$TEAM_CONFIG_ARG")
@@ -149,7 +149,7 @@ initialize_task_state() {
 cmd_task_init() {
   load_runtime_context
   initialize_task_state
-  echo "Initialized state store: $COORD_DIR"
+  echo "Initialized state store: $STATE_DIR"
 }
 
 cmd_task_lock() {
@@ -302,16 +302,16 @@ cmd_worktree_start() {
 
   branch_name="$(branch_name_for "$agent" "$task_id")"
   worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir")"
-  shared_state="${AI_COORD_DIR:-$(shared_state_dir_for "$parent_dir")}"
+  shared_state="${AI_STATE_DIR:-$(shared_state_dir_for "$parent_dir")}"
   scope_key="$(normalize_scope "$scope")"
   lock_file="${shared_state}/locks/${scope_key}.lock"
 
-  cli_base=("$TEAM_BIN" --repo "$worktree_path" --coord-dir "$shared_state")
+  cli_base=("$TEAM_BIN" --repo "$worktree_path" --state-dir "$shared_state")
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
     cli_base+=(--config "$TEAM_CONFIG_ARG")
   fi
 
-  (cd "$worktree_path" && AI_COORD_DIR="$shared_state" "${cli_base[@]}" task init)
+  (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task init)
 
   if [[ -f "$lock_file" ]]; then
     lock_owner="$(read_field "$lock_file" "owner")"
@@ -321,10 +321,10 @@ cmd_worktree_start() {
     fi
     echo "Lock already held: scope=$scope owner=$agent task=$task_id"
   else
-    (cd "$worktree_path" && AI_COORD_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$scope" "$task_id")
+    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$scope" "$task_id")
   fi
 
-  (cd "$worktree_path" && AI_COORD_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary")
+  (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary")
 
   echo "Task started:"
   echo "  agent=$agent"
@@ -752,7 +752,7 @@ cmd_task_stop() {
 
   [[ -n "$target_mode" ]] || die "task stop requires one target: --task <id> | --owner <owner> | --all"
 
-  local -a cmd=(select-stop --repo "$REPO_ROOT" --coord-dir "$COORD_DIR" --format tsv)
+  local -a cmd=(select-stop --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --format tsv)
   case "$target_mode" in
     task) cmd+=(--task "$target_task") ;;
     owner) cmd+=(--owner "$target_owner") ;;
@@ -785,7 +785,7 @@ cmd_task_cleanup_stale() {
     shift || true
   done
 
-  local -a cmd=(select-stale --repo "$REPO_ROOT" --coord-dir "$COORD_DIR" --format tsv)
+  local -a cmd=(select-stale --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --format tsv)
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
     cmd+=(--config "$TEAM_CONFIG_ARG")
   fi
@@ -885,7 +885,7 @@ ready = payload.get("ready_tasks", [])
 excluded = payload.get("excluded_tasks", [])
 
 print(f"Trigger: {payload.get('trigger', 'manual')}")
-print(f"Coord dir: {payload.get('coord_dir', '')}")
+print(f"State dir: {payload.get('state_dir', '')}")
 print(f"Running locks: {len(running)}")
 for item in running:
     print(f"  - scope={item.get('scope', '')} owner={item.get('owner', '')} task={item.get('task_id', '')}")
@@ -946,7 +946,7 @@ cmd_run_start() {
     echo "Launch mode is not available in this build. Using no-launch behavior."
   fi
 
-  local -a ready_cmd=(ready --repo "$REPO_ROOT" --coord-dir "$COORD_DIR" --trigger "$trigger")
+  local -a ready_cmd=(ready --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --trigger "$trigger")
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
     ready_cmd+=(--config "$TEAM_CONFIG_ARG")
   fi
@@ -982,18 +982,18 @@ cmd_run_start() {
     summary="Auto-start by scheduler (${trigger})"
 
     if [[ "$dry_run" -eq 1 ]]; then
-      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --coord-dir $COORD_DIR worktree start $agent $scope $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
+      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $scope $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
       started_count=$((started_count + 1))
       continue
     fi
 
-    start_cmd=("$TEAM_BIN" --repo "$REPO_ROOT" --coord-dir "$COORD_DIR")
+    start_cmd=("$TEAM_BIN" --repo "$REPO_ROOT" --state-dir "$STATE_DIR")
     if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
       start_cmd+=(--config "$TEAM_CONFIG_ARG")
     fi
     start_cmd+=(worktree start "$agent" "$scope" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
 
-    if ! AI_COORD_DIR="$COORD_DIR" "${start_cmd[@]}"; then
+    if ! AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}"; then
       echo "[ERROR] Failed to start task=$task_id owner=$owner"
       continue
     fi
@@ -1020,6 +1020,7 @@ cmd_unified_status() {
   load_runtime_context
 
   local json_output=0
+  local tui_output=0
   local trigger="manual"
   local max_start_arg=""
 
@@ -1027,6 +1028,9 @@ cmd_unified_status() {
     case "$1" in
       --json)
         json_output=1
+        ;;
+      --tui)
+        tui_output=1
         ;;
       --trigger)
         shift || true
@@ -1045,7 +1049,7 @@ cmd_unified_status() {
     shift || true
   done
 
-  local -a cmd=(status --repo "$REPO_ROOT" --coord-dir "$COORD_DIR" --trigger "$trigger")
+  local -a cmd=(status --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --trigger "$trigger")
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
     cmd+=(--config "$TEAM_CONFIG_ARG")
   fi
@@ -1053,8 +1057,14 @@ cmd_unified_status() {
     cmd+=(--max-start "$max_start_arg")
   fi
 
+  if [[ "$json_output" -eq 1 && "$tui_output" -eq 1 ]]; then
+    die "status options --json and --tui are mutually exclusive"
+  fi
+
   if [[ "$json_output" -eq 1 ]]; then
     cmd+=(--format json)
+  elif [[ "$tui_output" -eq 1 ]]; then
+    cmd+=(--format tui)
   else
     cmd+=(--format text)
   fi

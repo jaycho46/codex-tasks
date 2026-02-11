@@ -20,7 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "repo": {
         "base_branch": "main",
         "todo_file": "TODO.md",
-        "coord_dir": ".coord",
+        "state_dir": ".state",
         "worktree_parent": "../<repo>-worktrees",
     },
     "owners": {
@@ -58,7 +58,7 @@ def _bootstrap_config_if_missing(cfg_path: Path) -> None:
 
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
 
-    inferred_repo_name = cfg_path.parent.parent.name if cfg_path.parent.name == ".coord" else cfg_path.parent.name
+    inferred_repo_name = cfg_path.parent.parent.name if cfg_path.parent.name == ".state" else cfg_path.parent.name
     default_worktree_parent = str(DEFAULT_CONFIG["repo"]["worktree_parent"]).replace("<repo>", inferred_repo_name)
 
     def q(value: str) -> str:
@@ -68,7 +68,7 @@ def _bootstrap_config_if_missing(cfg_path: Path) -> None:
     template = f"""[repo]
 base_branch = {q(str(DEFAULT_CONFIG["repo"]["base_branch"]))}
 todo_file = {q(str(DEFAULT_CONFIG["repo"]["todo_file"]))}
-coord_dir = {q(str(DEFAULT_CONFIG["repo"]["coord_dir"]))}
+state_dir = {q(str(DEFAULT_CONFIG["repo"]["state_dir"]))}
 worktree_parent = {q(default_worktree_parent)}
 
 [owners]
@@ -122,15 +122,15 @@ def _expand_repo_placeholder(value: str, repo_name: str) -> str:
 
 
 def _repo_root_from_config_path(cfg_path: Path, fallback_repo_root: Path) -> Path:
-    # If config is placed at <repo>/.coord/orchestrator.toml, resolve relative
-    # repo paths (TODO.md, worktree_parent, coord_dir) from that repo root.
-    if cfg_path.parent.name == ".coord":
+    # If config is placed at <repo>/.state/orchestrator.toml, resolve relative
+    # repo paths (TODO.md, worktree_parent, state_dir) from that repo root.
+    if cfg_path.parent.name == ".state":
         return cfg_path.parent.parent.resolve()
     return fallback_repo_root
 
 
 def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[str, Any], Path]:
-    cfg_path = Path(config_path).expanduser() if config_path else (repo_root / ".coord" / "orchestrator.toml")
+    cfg_path = Path(config_path).expanduser() if config_path else (repo_root / ".state" / "orchestrator.toml")
     if not cfg_path.is_absolute():
         cfg_path = (repo_root / cfg_path).resolve()
 
@@ -170,7 +170,7 @@ def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[s
 def resolve_context(
     repo_root: Path,
     config: dict[str, Any],
-    coord_dir_arg: str | None = None,
+    state_dir_arg: str | None = None,
     config_path: Path | None = None,
 ) -> dict[str, Any]:
     repo_name = repo_root.name
@@ -181,13 +181,13 @@ def resolve_context(
     todo_file = _to_abs(config_repo_root, str(config["repo"]["todo_file"]))
     worktree_parent = _to_abs(config_repo_root, str(config["repo"]["worktree_parent"]))
 
-    coord_src = coord_dir_arg or os.getenv("AI_COORD_DIR") or str(config["repo"]["coord_dir"])
-    coord_base = repo_root if (coord_dir_arg or os.getenv("AI_COORD_DIR")) else config_repo_root
-    coord_dir = _to_abs(coord_base, coord_src)
+    state_src = state_dir_arg or os.getenv("AI_STATE_DIR") or str(config["repo"]["state_dir"])
+    state_base = repo_root if (state_dir_arg or os.getenv("AI_STATE_DIR")) else config_repo_root
+    state_dir = _to_abs(state_base, state_src)
 
-    lock_dir = coord_dir / "locks"
-    orch_dir = coord_dir / "orchestrator"
-    updates_file = coord_dir / "LATEST_UPDATES.md"
+    lock_dir = state_dir / "locks"
+    orch_dir = state_dir / "orchestrator"
+    updates_file = state_dir / "LATEST_UPDATES.md"
 
     runtime = {
         "max_start": int(config["runtime"]["max_start"]),
@@ -205,7 +205,7 @@ def resolve_context(
         "repo_parent": str(repo_parent),
         "base_branch": str(config["repo"]["base_branch"]),
         "todo_file": str(todo_file),
-        "coord_dir": str(coord_dir),
+        "state_dir": str(state_dir),
         "lock_dir": str(lock_dir),
         "orch_dir": str(orch_dir),
         "updates_file": str(updates_file),

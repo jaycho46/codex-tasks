@@ -5,7 +5,7 @@ Unified orchestration CLI for git-worktree based multi-agent execution.
 ## Entry point
 
 ```bash
-scripts/codex-teams [--repo <path>] [--coord-dir <path>] [--config <path>] <command>
+scripts/codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] <command>
 ```
 
 ## Commands
@@ -13,10 +13,15 @@ scripts/codex-teams [--repo <path>] [--coord-dir <path>] [--config <path>] <comm
 ### Unified status
 
 ```bash
-scripts/codex-teams status [--json] [--trigger <label>] [--max-start <n>]
+scripts/codex-teams status [--json|--tui] [--trigger <label>] [--max-start <n>]
 ```
 
 Includes scheduler readiness, excluded tasks (with reasons), runtime state counts, and lock snapshots.
+
+- `--tui`: launch interactive status dashboard via `textual` (TTY required).
+- TUI shows ready/excluded/runtime/locks by default; task board is fixed at the bottom, hidden initially, and toggled with `t`.
+- If `--tui` is used in non-interactive execution (tests/CI), it falls back to text output.
+- Install dependency for interactive mode: `python3 -m pip install textual`
 
 ### Task domain (state + runtime merged)
 
@@ -61,7 +66,7 @@ This prevents duplicate auto-start when `main` TODO rows are still `TODO` while 
 
 ## Bootstrap behavior
 
-- Missing config file is auto-created at `.coord/orchestrator.toml`.
+- Missing config file is auto-created at `.state/orchestrator.toml`.
 - Missing `TODO.md` is auto-created with a minimal table template when needed.
 
 ## Legacy surface
@@ -80,4 +85,5 @@ Use `scripts/codex-teams status` and `scripts/codex-teams task ...` instead.
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/smoke/test_run_start_dry_run.sh
+bash tests/smoke/test_status_tui_fallback.sh
 ```

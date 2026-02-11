@@ -23,7 +23,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("[repo]", config_path.read_text(encoding="utf-8"))
             self.assertEqual(config["repo"]["worktree_parent"], "../sample-repo-worktrees")
 
-    def test_resolve_context_coord_dir_priority(self) -> None:
+    def test_resolve_context_state_dir_priority(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td) / "priority-repo"
             repo_root.mkdir(parents=True, exist_ok=True)
@@ -32,21 +32,21 @@ class ConfigTests(unittest.TestCase):
 
             with patch.dict(os.environ, {}, clear=False):
                 ctx_default = resolve_context(repo_root, config, None, config_path=config_path)
-                self.assertEqual(ctx_default["coord_dir"], str((repo_root / ".coord").resolve()))
+                self.assertEqual(ctx_default["state_dir"], str((repo_root / ".state").resolve()))
 
-            with patch.dict(os.environ, {"AI_COORD_DIR": "shared/state"}, clear=False):
+            with patch.dict(os.environ, {"AI_STATE_DIR": "shared/state"}, clear=False):
                 ctx_env = resolve_context(repo_root, config, None, config_path=config_path)
-                self.assertEqual(ctx_env["coord_dir"], str((repo_root / "shared/state").resolve()))
+                self.assertEqual(ctx_env["state_dir"], str((repo_root / "shared/state").resolve()))
 
-            with patch.dict(os.environ, {"AI_COORD_DIR": "shared/state"}, clear=False):
+            with patch.dict(os.environ, {"AI_STATE_DIR": "shared/state"}, clear=False):
                 ctx_arg = resolve_context(repo_root, config, "arg/state", config_path=config_path)
-                self.assertEqual(ctx_arg["coord_dir"], str((repo_root / "arg/state").resolve()))
+                self.assertEqual(ctx_arg["state_dir"], str((repo_root / "arg/state").resolve()))
 
     def test_invalid_todo_schema_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td) / "invalid-repo"
             repo_root.mkdir(parents=True, exist_ok=True)
-            cfg_path = repo_root / ".coord" / "orchestrator.toml"
+            cfg_path = repo_root / ".state" / "orchestrator.toml"
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             cfg_path.write_text(
                 """

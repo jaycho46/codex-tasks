@@ -48,7 +48,7 @@ normalize_agent_name() {
 }
 
 ensure_updates_file() {
-  mkdir -p "$COORD_DIR"
+  mkdir -p "$STATE_DIR"
   if [[ ! -f "$UPDATES_FILE" ]]; then
     cat > "$UPDATES_FILE" <<'EOF'
 # Latest Updates

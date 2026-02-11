@@ -10,13 +10,17 @@ ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "scripts" / "py" / "engine.py"
 
 
-def _run_engine(repo_root: Path, *args: str) -> dict:
-    proc = subprocess.run(
+def _run_engine_raw(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, str(ENGINE), *args, "--repo", str(repo_root)],
         check=True,
         capture_output=True,
         text=True,
     )
+
+
+def _run_engine(repo_root: Path, *args: str) -> dict:
+    proc = _run_engine_raw(repo_root, *args)
     return json.loads(proc.stdout)
 
 
@@ -36,8 +40,8 @@ def _write_todo(repo_root: Path, rows: list[tuple[str, str, str, str, str, str]]
     (repo_root / "TODO.md").write_text("\n".join(table) + "\n", encoding="utf-8")
 
 
-def _write_lock(coord_dir: Path, filename: str, owner: str, scope: str, task_id: str, worktree: Path) -> None:
-    lock_dir = coord_dir / "locks"
+def _write_lock(state_dir: Path, filename: str, owner: str, scope: str, task_id: str, worktree: Path) -> None:
+    lock_dir = state_dir / "locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
     (lock_dir / filename).write_text(
         "\n".join(
@@ -54,7 +58,7 @@ def _write_lock(coord_dir: Path, filename: str, owner: str, scope: str, task_id:
 
 
 def _write_pid(
-    coord_dir: Path,
+    state_dir: Path,
     filename: str,
     owner: str,
     scope: str,
@@ -62,7 +66,7 @@ def _write_pid(
     pid: int,
     worktree: Path,
 ) -> None:
-    orch_dir = coord_dir / "orchestrator"
+    orch_dir = state_dir / "orchestrator"
     orch_dir.mkdir(parents=True, exist_ok=True)
     (orch_dir / filename).write_text(
         "\n".join(
@@ -97,12 +101,12 @@ class EngineReadyTests(unittest.TestCase):
                 ],
             )
 
-            coord_dir = repo_root / ".coord"
-            _write_lock(coord_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
-            _write_pid(coord_dir, "worker-active.pid", "AgentA", "app-shell", "T1-001", os.getpid(), repo_root)
+            state_dir = repo_root / ".state"
+            _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
+            _write_pid(state_dir, "worker-active.pid", "AgentA", "app-shell", "T1-001", os.getpid(), repo_root)
 
-            _write_lock(coord_dir, "ui-popover.lock", "AgentD", "ui-popover", "T1-005", repo_root)
-            _write_pid(coord_dir, "worker-stale.pid", "AgentD", "ui-popover", "T1-005", 99999999, repo_root)
+            _write_lock(state_dir, "ui-popover.lock", "AgentD", "ui-popover", "T1-005", repo_root)
+            _write_pid(state_dir, "worker-stale.pid", "AgentD", "ui-popover", "T1-005", 99999999, repo_root)
 
             payload = _run_engine(repo_root, "ready")
 
@@ -132,14 +136,38 @@ class EngineReadyTests(unittest.TestCase):
 
             payload = _run_engine(repo_root, "status", "--format", "json")
 
+            self.assertIn("state_dir", payload)
             self.assertIn("scheduler", payload)
             self.assertIn("runtime", payload)
             self.assertIn("coordination", payload)
+            self.assertIn("task_board", payload)
 
             self.assertEqual(payload["scheduler"]["summary"]["ready"], 1)
             self.assertEqual(payload["scheduler"]["summary"]["excluded"], 0)
             self.assertEqual(payload["runtime"]["summary"]["active"], 0)
             self.assertEqual(payload["coordination"]["summary"]["locks"], 0)
+            self.assertEqual(payload["task_board"]["summary"]["total"], 1)
+            self.assertEqual(payload["task_board"]["tasks"][0]["task_id"], "T2-001")
+            self.assertEqual(payload["task_board"]["tasks"][0]["status"], "TODO")
+
+    def test_status_tui_falls_back_to_text_in_non_interactive_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            _init_git_repo(repo_root)
+
+            _write_todo(
+                repo_root,
+                [
+                    ("T3-001", "ready", "AgentA", "-", "", "TODO"),
+                ],
+            )
+
+            proc = _run_engine_raw(repo_root, "status", "--format", "tui")
+
+            self.assertIn("Scheduler: ready=1 excluded=0", proc.stdout)
+            self.assertIn("Runtime: total=0 active=0 stale=0", proc.stdout)
+            self.assertIn("Coordination: locks=0", proc.stdout)
 
 
 if __name__ == "__main__":

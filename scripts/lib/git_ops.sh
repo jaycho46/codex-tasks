@@ -28,7 +28,7 @@ default_worktree_path_for() {
 
 shared_state_dir_for() {
   local parent_dir="${1:-}"
-  echo "${parent_dir}/.coord-shared"
+  echo "${parent_dir}/.state-shared"
 }
 
 find_worktree_for_branch() {

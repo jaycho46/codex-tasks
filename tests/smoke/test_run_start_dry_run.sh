@@ -21,14 +21,14 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-003 | Ready task | AgentB | - | | TODO |
 EOF
 
-mkdir -p "$REPO/.coord/locks" "$REPO/.coord/orchestrator"
-cat > "$REPO/.coord/locks/app-shell.lock" <<EOF
+mkdir -p "$REPO/.state/locks" "$REPO/.state/orchestrator"
+cat > "$REPO/.state/locks/app-shell.lock" <<EOF
 owner=AgentA
 scope=app-shell
 task_id=T1-001
 worktree=$REPO
 EOF
-cat > "$REPO/.coord/orchestrator/worker.pid" <<EOF
+cat > "$REPO/.state/orchestrator/worker.pid" <<EOF
 owner=AgentA
 scope=app-shell
 task_id=T1-001

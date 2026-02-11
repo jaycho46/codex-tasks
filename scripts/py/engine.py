@@ -43,18 +43,19 @@ def resolve_repo_root(repo_arg: str | None) -> Path:
 def load_ctx(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any], Path]:
     repo_root = resolve_repo_root(args.repo)
     config, config_path = load_config(repo_root, args.config)
-    ctx = resolve_context(repo_root, config, args.coord_dir, config_path=config_path)
+    ctx = resolve_context(repo_root, config, args.state_dir, config_path=config_path)
     ctx["config_path"] = str(config_path)
     return config, ctx, repo_root
 
 
 def to_env(ctx: dict[str, Any]) -> str:
+    state_dir = ctx["state_dir"]
     plain = {
         "REPO_ROOT": ctx["repo_root"],
         "REPO_NAME": ctx["repo_name"],
         "BASE_BRANCH": ctx["base_branch"],
         "TODO_FILE": ctx["todo_file"],
-        "COORD_DIR": ctx["coord_dir"],
+        "STATE_DIR": state_dir,
         "LOCK_DIR": ctx["lock_dir"],
         "ORCH_DIR": ctx["orch_dir"],
         "UPDATES_FILE": ctx["updates_file"],
@@ -258,7 +259,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "trigger": args.trigger,
         "repo_root": ctx["repo_root"],
-        "coord_dir": ctx["coord_dir"],
+        "state_dir": ctx["state_dir"],
         "max_start": max_start,
         "running_locks": running_locks,
         "ready_tasks": ready_tasks,
@@ -297,7 +298,7 @@ def _inventory_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "repo_root": str(repo_root),
-        "coord_dir": ctx["coord_dir"],
+        "state_dir": ctx["state_dir"],
         "scripts": {
             "codex_teams": str(Path(__file__).resolve().parents[1] / "codex-teams"),
         },
@@ -334,9 +335,43 @@ def cmd_inventory(args: argparse.Namespace) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _task_board_payload(args: argparse.Namespace) -> dict[str, Any]:
+    _, ctx, _ = load_ctx(args)
+
+    ensure_todo_file(ctx["todo_file"])
+    tasks, _ = parse_todo(ctx["todo_file"], ctx["todo"])
+
+    rows: list[dict[str, str]] = []
+    status_counts: dict[str, int] = {}
+
+    for task in tasks:
+        status = str(task.get("status") or "")
+        owner = str(task.get("owner") or "")
+        rows.append(
+            {
+                "task_id": str(task.get("id") or ""),
+                "title": str(task.get("title") or ""),
+                "owner": owner,
+                "scope": str(ctx["owners_by_key"].get(owner_key(owner), "")),
+                "deps": str(task.get("deps") or ""),
+                "status": status,
+            }
+        )
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    return {
+        "tasks": rows,
+        "summary": {
+            "total": len(rows),
+            "status_counts": status_counts,
+        },
+    }
+
+
 def _status_payload(args: argparse.Namespace) -> dict[str, Any]:
     ready_payload = _ready_payload(args)
     inventory_payload = _inventory_payload(args)
+    task_board_payload = _task_board_payload(args)
 
     counts = inventory_payload.get("summary", {}).get("state_counts", {})
     stale_total = sum(
@@ -347,7 +382,7 @@ def _status_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "repo_root": ready_payload["repo_root"],
-        "coord_dir": ready_payload["coord_dir"],
+        "state_dir": ready_payload["state_dir"],
         "scheduler": {
             "trigger": ready_payload["trigger"],
             "max_start": ready_payload["max_start"],
@@ -373,15 +408,11 @@ def _status_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "locks": len(ready_payload["running_locks"]),
             },
         },
+        "task_board": task_board_payload,
     }
 
 
-def cmd_status(args: argparse.Namespace) -> None:
-    payload = _status_payload(args)
-    if args.format == "json":
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-
+def _render_status_text(payload: dict[str, Any]) -> str:
     scheduler = payload.get("scheduler", {})
     runtime = payload.get("runtime", {})
     coordination = payload.get("coordination", {})
@@ -390,27 +421,28 @@ def cmd_status(args: argparse.Namespace) -> None:
     active_locks = coordination.get("active_locks", [])
     state_counts = runtime.get("summary", {}).get("state_counts", {})
 
-    print(f"Repo: {payload.get('repo_root', '')}")
-    print(f"Coord dir: {payload.get('coord_dir', '')}")
-    print(f"Trigger: {scheduler.get('trigger', 'manual')}")
-    print(f"Max start: {scheduler.get('max_start', 0)}")
-    print()
+    lines: list[str] = []
+    lines.append(f"Repo: {payload.get('repo_root', '')}")
+    lines.append(f"State dir: {payload.get('state_dir', '')}")
+    lines.append(f"Trigger: {scheduler.get('trigger', 'manual')}")
+    lines.append(f"Max start: {scheduler.get('max_start', 0)}")
+    lines.append("")
 
-    print(
+    lines.append(
         "Scheduler: "
         f"ready={scheduler.get('summary', {}).get('ready', 0)} "
         f"excluded={scheduler.get('summary', {}).get('excluded', 0)}"
     )
     for item in ready_tasks:
-        print(f"  [READY] {item.get('task_id', '')} owner={item.get('owner', '')} deps={item.get('deps', '')}")
+        lines.append(f"  [READY] {item.get('task_id', '')} owner={item.get('owner', '')} deps={item.get('deps', '')}")
     for item in excluded_tasks:
-        print(
+        lines.append(
             f"  [EXCLUDED] {item.get('task_id', '')} owner={item.get('owner', '')} "
             f"reason={item.get('reason', '')} source={item.get('source', '')}"
         )
 
-    print()
-    print(
+    lines.append("")
+    lines.append(
         "Runtime: "
         f"total={runtime.get('summary', {}).get('total', 0)} "
         f"active={runtime.get('summary', {}).get('active', 0)} "
@@ -418,12 +450,179 @@ def cmd_status(args: argparse.Namespace) -> None:
     )
     if state_counts:
         ordered = sorted(state_counts.items(), key=lambda x: x[0])
-        print("  states=" + ", ".join(f"{k}:{v}" for k, v in ordered))
+        lines.append("  states=" + ", ".join(f"{k}:{v}" for k, v in ordered))
 
-    print()
-    print(f"Coordination: locks={coordination.get('summary', {}).get('locks', 0)}")
+    lines.append("")
+    lines.append(f"Coordination: locks={coordination.get('summary', {}).get('locks', 0)}")
     for lock in active_locks:
-        print(f"  [LOCK] scope={lock.get('scope', '')} owner={lock.get('owner', '')} task={lock.get('task_id', '')}")
+        lines.append(f"  [LOCK] scope={lock.get('scope', '')} owner={lock.get('owner', '')} task={lock.get('task_id', '')}")
+
+    return "\n".join(lines)
+
+
+def _run_status_tui(payload: dict[str, Any]) -> None:
+    try:
+        from textual.app import App, ComposeResult
+        from textual.containers import VerticalScroll
+        from textual.widgets import DataTable, Footer, Header, Static
+    except ModuleNotFoundError:
+        die("Textual is not installed. Install with: pip install textual")
+
+    scheduler = payload.get("scheduler", {})
+    runtime = payload.get("runtime", {})
+    coordination = payload.get("coordination", {})
+    task_board = payload.get("task_board", {})
+
+    class StatusTui(App[None]):
+        CSS = """
+        Screen {
+            layout: vertical;
+        }
+
+        #meta {
+            padding: 0 1;
+            height: auto;
+            content-align: left middle;
+        }
+
+        VerticalScroll {
+            height: 1fr;
+        }
+
+        DataTable {
+            margin: 0 1 1 1;
+            height: auto;
+            min-height: 6;
+        }
+
+        #task_table {
+            margin: 0 1 0 1;
+            height: 10;
+        }
+        """
+        BINDINGS = [("q", "quit", "Quit"), ("escape", "quit", "Quit"), ("t", "toggle_tasks", "Tasks")]
+
+        def compose(self) -> ComposeResult:
+            yield Header(show_clock=True)
+            yield Static(id="meta")
+            with VerticalScroll(id="main_scroll"):
+                yield DataTable(id="ready_table")
+                yield DataTable(id="excluded_table")
+                yield DataTable(id="runtime_table")
+                yield DataTable(id="lock_table")
+            yield DataTable(id="task_table")
+            yield Footer()
+
+        def on_mount(self) -> None:
+            self.title = "codex-teams status"
+            self.sub_title = "Press q to quit | Task board: hidden (toggle: t)"
+
+            meta = self.query_one("#meta", Static)
+            meta.update(
+                (
+                    f"repo={payload.get('repo_root', '')}\n"
+                    f"state_dir={payload.get('state_dir', '')}\n"
+                    f"trigger={scheduler.get('trigger', 'manual')} "
+                    f"max_start={scheduler.get('max_start', 0)} "
+                    f"tasks={task_board.get('summary', {}).get('total', 0)}"
+                )
+            )
+
+            ready_table = self.query_one("#ready_table", DataTable)
+            ready_table.zebra_stripes = True
+            ready_table.add_columns("READY task", "Owner", "Scope", "Deps")
+            ready_rows = scheduler.get("ready_tasks", [])
+            if ready_rows:
+                for item in ready_rows:
+                    ready_table.add_row(
+                        str(item.get("task_id", "")),
+                        str(item.get("owner", "")),
+                        str(item.get("scope", "")),
+                        str(item.get("deps", "")),
+                    )
+            else:
+                ready_table.add_row("-", "-", "-", "-")
+
+            excluded_table = self.query_one("#excluded_table", DataTable)
+            excluded_table.zebra_stripes = True
+            excluded_table.add_columns("EXCLUDED task", "Owner", "Reason", "Source")
+            excluded_rows = scheduler.get("excluded_tasks", [])
+            if excluded_rows:
+                for item in excluded_rows:
+                    excluded_table.add_row(
+                        str(item.get("task_id", "")),
+                        str(item.get("owner", "")),
+                        str(item.get("reason", "")),
+                        str(item.get("source", "")),
+                    )
+            else:
+                excluded_table.add_row("-", "-", "-", "-")
+
+            runtime_table = self.query_one("#runtime_table", DataTable)
+            runtime_table.zebra_stripes = True
+            runtime_table.add_columns("Runtime state", "Count")
+            counts = runtime.get("summary", {}).get("state_counts", {})
+            if counts:
+                for state, count in sorted(counts.items(), key=lambda x: x[0]):
+                    runtime_table.add_row(str(state), str(count))
+            else:
+                runtime_table.add_row("NONE", "0")
+
+            lock_table = self.query_one("#lock_table", DataTable)
+            lock_table.zebra_stripes = True
+            lock_table.add_columns("Lock scope", "Owner", "Task")
+            locks = coordination.get("active_locks", [])
+            if locks:
+                for lock in locks:
+                    lock_table.add_row(
+                        str(lock.get("scope", "")),
+                        str(lock.get("owner", "")),
+                        str(lock.get("task_id", "")),
+                    )
+            else:
+                lock_table.add_row("-", "-", "-")
+
+            task_table = self.query_one("#task_table", DataTable)
+            task_table.zebra_stripes = True
+            task_table.add_columns("Task", "Title", "Owner", "Scope", "Status", "Deps")
+            task_rows = task_board.get("tasks", [])
+            if task_rows:
+                for item in reversed(task_rows):
+                    task_table.add_row(
+                        str(item.get("task_id", "")),
+                        str(item.get("title", "")),
+                        str(item.get("owner", "")),
+                        str(item.get("scope", "")),
+                        str(item.get("status", "")),
+                        str(item.get("deps", "")),
+                    )
+            else:
+                task_table.add_row("-", "-", "-", "-", "-", "-")
+            task_table.display = False
+
+        def action_toggle_tasks(self) -> None:
+            task_table = self.query_one("#task_table", DataTable)
+            task_table.display = not task_table.display
+            state = "shown" if task_table.display else "hidden"
+            self.sub_title = f"Press q to quit | Task board: {state} (toggle: t)"
+
+    StatusTui().run()
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    payload = _status_payload(args)
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if args.format == "tui":
+        # In non-interactive shells (tests/CI), keep deterministic text output.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print(_render_status_text(payload))
+            return
+        _run_status_tui(payload)
+        return
+
+    print(_render_status_text(payload))
 
 
 def cmd_select_stop(args: argparse.Namespace) -> None:
@@ -499,7 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(p: argparse.ArgumentParser) -> None:
         p.add_argument("--repo", help="Git repository root or child path")
-        p.add_argument("--coord-dir", help="Coordination directory override")
+        p.add_argument("--state-dir", dest="state_dir", help="State directory override")
         p.add_argument("--config", help="Config path override")
 
     p_paths = sub.add_parser("paths")
@@ -518,7 +717,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_status)
     p_status.add_argument("--trigger", default="manual")
     p_status.add_argument("--max-start", type=int)
-    p_status.add_argument("--format", choices=["text", "json"], default="text")
+    p_status.add_argument("--format", choices=["text", "json", "tui"], default="text")
     p_status.set_defaults(fn=cmd_status)
 
     p_inventory = sub.add_parser("inventory")
