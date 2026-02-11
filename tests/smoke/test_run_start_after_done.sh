@@ -31,7 +31,7 @@ git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 
 # First scheduler run: only T1-001 should start.
-RUN1="$($CLI --repo "$REPO" run start --trigger smoke-after-done-initial)"
+RUN1="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-after-done-initial)"
 echo "$RUN1"
 
 echo "$RUN1" | grep -q "Started tasks: 1"
@@ -66,7 +66,7 @@ awk -F'|' '
 mv "$TMP_TODO" "$REPO/TODO.md"
 
 # Second scheduler run: dependent T1-002 should start now.
-RUN2="$($CLI --repo "$REPO" run start --trigger smoke-after-done-second)"
+RUN2="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-after-done-second)"
 echo "$RUN2"
 
 echo "$RUN2" | grep -q "Started tasks: 1"

@@ -19,7 +19,7 @@ scripts/codex-teams status [--json|--tui] [--trigger <label>] [--max-start <n>]
 Includes scheduler readiness, excluded tasks (with reasons), runtime state counts, and lock snapshots.
 
 - `--tui`: launch interactive status dashboard via `textual` (TTY required).
-- TUI shows ready/excluded/runtime/locks by default; task board is fixed at the bottom, hidden initially, and toggled with `t`.
+- TUI shows ready/excluded/runtime/locks and the task board by default; task board is fixed at the bottom and toggled with `t`.
 - TUI auto-refreshes scheduler/runtime/task-board state every 2 seconds.
 - If `--tui` is used in non-interactive execution (tests/CI), it falls back to text output.
 - Install dependency for interactive mode: `python3 -m pip install textual`
@@ -43,6 +43,10 @@ scripts/codex-teams task emergency-stop [--reason <text>] [--apply]
 - `--gitignore yes`: append state path automatically when missing.
 - `--gitignore no`: skip updates.
 
+`task complete` commit subject format:
+- with `--summary`: `task(<id>): <summary>`
+- without `--summary`: `task(<id>): <task title from TODO.md>`
+
 ### Worktree domain
 
 ```bash
@@ -54,13 +58,15 @@ scripts/codex-teams worktree list
 ### Scheduler domain
 
 ```bash
-scripts/codex-teams run start [--dry-run] [--launch|--no-launch] [--trigger <label>] [--max-start <n>]
+scripts/codex-teams run start [--dry-run] [--no-launch] [--trigger <label>] [--max-start <n>]
 ```
 
-Default behavior is start-only (`no-launch`): it creates/locks/updates task state but does not launch codex workers.
-Use `--launch` to start detached `codex exec` workers and emit pid metadata under `.state/orchestrator/*.pid`.
+Default behavior launches detached `codex exec` workers and emits pid metadata under `.state/orchestrator/*.pid`.
+Use `--no-launch` for start-only mode (create worktree/lock/state transitions without worker launch).
 If task start/launch fails (for example lock conflicts), scheduler rollback will release owned lock/state and terminate spawned `codex` background pids before cleanup.
 Launch workers are started as detached session processes so they survive scheduler command exit.
+Launch command includes `--add-dir` for state dir and primary repo so worker-side `task update/complete` can write orchestration metadata and finalize.
+If sandbox mode is not explicitly set in `runtime.codex_flags`, workers replace `--full-auto` with `--dangerously-bypass-approvals-and-sandbox` so git completion flow can write `index.lock` under primary `.git/worktrees`.
 
 ## Ready task selection behavior
 
@@ -103,5 +109,6 @@ bash tests/smoke/test_run_start_scenario.sh
 bash tests/smoke/test_task_init_gitignore.sh
 bash tests/smoke/test_task_complete_auto_run_start.sh
 bash tests/smoke/test_task_complete_clears_pid_metadata.sh
+bash tests/smoke/test_task_complete_commit_summary_fallback.sh
 bash tests/smoke/test_status_tui_fallback.sh
 ```

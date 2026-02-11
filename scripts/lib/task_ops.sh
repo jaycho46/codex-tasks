@@ -389,9 +389,32 @@ cmd_task_update() {
 
 commit_completion_marker_if_needed() {
   local task_id="${1:-}"
-  local summary="${2:-task complete}"
+  local summary="${2:-}"
+  local normalized_summary task_title
   local commit_msg
-  commit_msg="task(${task_id}): complete - ${summary}"
+
+  normalized_summary="$(trim "$summary")"
+  if [[ -z "$normalized_summary" ]]; then
+    task_title="$(awk -F'|' -v task="$task_id" '
+      $0 ~ /^\|/ {
+        id=$2
+        gsub(/^[ \t]+|[ \t]+$/, "", id)
+        if (id == task) {
+          title=$3
+          gsub(/^[ \t]+|[ \t]+$/, "", title)
+          print title
+          exit
+        }
+      }
+    ' "$TODO_FILE")"
+    if [[ -n "$task_title" ]]; then
+      normalized_summary="$task_title"
+    else
+      normalized_summary="task complete"
+    fi
+  fi
+
+  commit_msg="task(${task_id}): ${normalized_summary}"
 
   git -C "$REPO_ROOT" add -- "$TODO_FILE"
   if git -C "$REPO_ROOT" diff --cached --quiet --exit-code; then
@@ -476,7 +499,7 @@ cmd_task_complete() {
 
   local scope
   scope="$(normalize_scope "$scope_raw")"
-  local summary="task complete"
+  local summary=""
   local trigger_label="task_done"
   local auto_run_start=1
 
@@ -539,7 +562,13 @@ cmd_task_complete() {
   fi
 
   update_todo_status "$task_id" "DONE"
-  append_update_log "$agent" "$task_id" "DONE" "$summary"
+  local log_summary
+  log_summary="$(trim "$summary")"
+  if [[ -z "$log_summary" ]]; then
+    log_summary="task complete"
+  fi
+
+  append_update_log "$agent" "$task_id" "DONE" "$log_summary"
   echo "Marked task DONE in worktree: task=$task_id owner=$agent"
 
   commit_completion_marker_if_needed "$task_id" "$summary"
@@ -1293,7 +1322,7 @@ launch_codex_exec_worker() {
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
 
-  local pid_meta logs_dir log_file pid started_at prompt
+  local pid_meta logs_dir log_file pid started_at prompt primary_repo
   pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
   [[ -n "$pid_meta" ]] || {
     echo "[ERROR] Failed to resolve pid metadata path for task=$task_id"
@@ -1320,13 +1349,50 @@ launch_codex_exec_worker() {
     codex_flags+=("$token")
   done < <(split_shell_words "$CODEX_FLAGS")
 
+  local sandbox_configured=0
+  local full_auto_configured=0
+  local flag
+  for flag in "${codex_flags[@]}"; do
+    case "$flag" in
+      --sandbox|-s|--dangerously-bypass-approvals-and-sandbox)
+        sandbox_configured=1
+        ;;
+      --full-auto)
+        full_auto_configured=1
+        ;;
+    esac
+  done
+  # Worker completion flow needs writes under primary .git/worktrees for index locks.
+  # --full-auto enforces workspace-write sandbox, so when sandbox is not explicit,
+  # replace it with bypass mode for detached worker automation.
+  if [[ "$sandbox_configured" -eq 0 ]]; then
+    if [[ "$full_auto_configured" -eq 1 ]]; then
+      local -a filtered_flags=()
+      for flag in "${codex_flags[@]}"; do
+        if [[ "$flag" == "--full-auto" ]]; then
+          continue
+        fi
+        filtered_flags+=("$flag")
+      done
+      codex_flags=("${filtered_flags[@]}")
+    fi
+    codex_flags+=(--dangerously-bypass-approvals-and-sandbox)
+  fi
+
   prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path")"
+  primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
   if [[ "${#codex_flags[@]}" -gt 0 ]]; then
     codex_cmd+=("${codex_flags[@]}")
   fi
-  codex_cmd+=(--cd "$worktree_path" "$prompt")
+  codex_cmd+=(--cd "$worktree_path")
+  # Allow worker-driven task update/complete to write shared state and finalize on primary repo.
+  codex_cmd+=(--add-dir "$STATE_DIR")
+  if [[ -n "$primary_repo" && "$primary_repo" != "$STATE_DIR" ]]; then
+    codex_cmd+=(--add-dir "$primary_repo")
+  fi
+  codex_cmd+=("$prompt")
 
   pid="$(spawn_detached_process "$log_file" "${codex_cmd[@]}" || true)"
   if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
@@ -1500,7 +1566,7 @@ acquire_scheduler_lock() {
 
 cmd_run_start() {
   local dry_run=0
-  local no_launch=1
+  local no_launch=""
   local trigger="manual"
   local max_start_arg=""
 
@@ -1508,9 +1574,6 @@ cmd_run_start() {
     case "$1" in
       --dry-run)
         dry_run=1
-        ;;
-      --launch)
-        no_launch=0
         ;;
       --no-launch)
         no_launch=1
@@ -1533,6 +1596,14 @@ cmd_run_start() {
   done
 
   load_runtime_context
+
+  if [[ -z "$no_launch" ]]; then
+    if [[ "${AUTO_NO_LAUNCH:-0}" == "1" ]]; then
+      no_launch=1
+    else
+      no_launch=0
+    fi
+  fi
 
   if ! is_primary_worktree "$REPO_ROOT"; then
     if [[ "${AI_ORCH_ALLOW_WORKTREE_RUN:-0}" != "1" ]]; then

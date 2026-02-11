@@ -7,6 +7,7 @@ CLI="$ROOT/scripts/codex-teams"
 TMP_DIR="$(mktemp -d)"
 REPO="$TMP_DIR/repo"
 FAKE_BIN="$TMP_DIR/fake-bin"
+FAKE_ARGS="$TMP_DIR/fake-codex.args"
 
 cleanup() {
   if [[ -d "$REPO" ]]; then
@@ -31,6 +32,10 @@ cat > "$FAKE_BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "${1:-}" == "exec" ]] || exit 2
+shift
+if [[ -n "${FAKE_CODEX_ARGS_FILE:-}" ]]; then
+  printf '%s\n' "$@" > "$FAKE_CODEX_ARGS_FILE"
+fi
 while true; do sleep 5; done
 EOF
 chmod +x "$FAKE_BIN/codex"
@@ -47,7 +52,7 @@ EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 
-RUN_OUT="$(PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --launch --trigger smoke-launch --max-start 1)"
+RUN_OUT="$(FAKE_CODEX_ARGS_FILE="$FAKE_ARGS" PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --trigger smoke-launch --max-start 1)"
 echo "$RUN_OUT"
 
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
@@ -81,6 +86,24 @@ fi
 
 PS_CMD="$(ps -p "$PID" -o command= | tr -d '\n')"
 echo "$PS_CMD" | grep -q "$FAKE_BIN/codex"
+
+PRIMARY_REPO="$(git -C "$REPO" rev-parse --show-toplevel)"
+EXPECTED_STATE_DIR="$PRIMARY_REPO/.state"
+
+if [[ ! -f "$FAKE_ARGS" ]]; then
+  echo "missing fake codex args capture: $FAKE_ARGS"
+  exit 1
+fi
+
+grep -Fx -- "--cd" "$FAKE_ARGS" >/dev/null
+grep -Fx -- "--add-dir" "$FAKE_ARGS" >/dev/null
+grep -Fx -- "$EXPECTED_STATE_DIR" "$FAKE_ARGS" >/dev/null
+grep -Fx -- "$PRIMARY_REPO" "$FAKE_ARGS" >/dev/null
+grep -Fx -- "--dangerously-bypass-approvals-and-sandbox" "$FAKE_ARGS" >/dev/null
+if grep -Fx -- "--full-auto" "$FAKE_ARGS" >/dev/null; then
+  echo "unexpected --full-auto in launched command"
+  exit 1
+fi
 
 PATH="$FAKE_BIN:$PATH" \
   "$CLI" --repo "$REPO" task stop --all --apply --reason "smoke launch cleanup"

@@ -33,7 +33,7 @@ Usage:
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] worktree start <agent> <scope> <task_id> [base_branch] [parent_dir] [summary]
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] worktree list
 
-  codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] run start [--dry-run] [--launch|--no-launch] [--trigger <label>] [--max-start <n>]
+  codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] run start [--dry-run] [--no-launch] [--trigger <label>] [--max-start <n>]
 USAGE
 }
 

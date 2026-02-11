@@ -51,7 +51,7 @@ git -C "$REPO" commit -q -m "chore: seed todo"
 mkdir -p "$REPO/.state/orchestrator/t8-009.pid"
 
 BEFORE_PIDS="$(pgrep -f "$FAKE_BIN/codex" || true)"
-OUT="$(PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --launch --trigger smoke-rollback-kill --max-start 1)"
+OUT="$(PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --trigger smoke-rollback-kill --max-start 1)"
 echo "$OUT"
 
 echo "$OUT" | grep -Eq "Failed to write pid metadata|Invalid pid metadata path"

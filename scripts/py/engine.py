@@ -504,7 +504,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             super().__init__()
             self.current_payload: dict[str, Any] = initial_payload
             self.last_error: str = ""
-            self.task_board_visible = False
+            self.task_board_visible = True
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
@@ -621,7 +621,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
 
         def on_mount(self) -> None:
             self.title = "codex-teams status"
-            self.sub_title = "Press q to quit | Task board: hidden (toggle: t)"
+            self.sub_title = "Press q to quit | Task board: shown (toggle: t)"
 
             ready_table = self.query_one("#ready_table", DataTable)
             ready_table.zebra_stripes = True
@@ -642,7 +642,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             task_table = self.query_one("#task_table", DataTable)
             task_table.zebra_stripes = True
             task_table.add_columns("Task", "Title", "Owner", "Scope", "Status", "Deps")
-            task_table.display = False
+            task_table.display = True
 
             self._render_payload()
             self.set_interval(refresh_seconds, self._refresh_payload)

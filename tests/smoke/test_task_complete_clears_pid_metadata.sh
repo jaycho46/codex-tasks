@@ -30,7 +30,7 @@ EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 
-RUN_OUT="$("$CLI" --repo "$REPO" run start --trigger smoke-complete-pid --max-start 1)"
+RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-complete-pid --max-start 1)"
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 

@@ -5,9 +5,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLI="$ROOT/scripts/codex-teams"
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
-
 REPO="$TMP_DIR/repo"
+FAKE_BIN="$TMP_DIR/fake-bin"
+
+cleanup() {
+  if [[ -d "$REPO" ]]; then
+    PATH="$FAKE_BIN:$PATH" \
+      "$CLI" --repo "$REPO" task stop --all --apply --reason "smoke complete cleanup" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
 mkdir -p "$REPO"
 git -C "$REPO" init -q
 git -C "$REPO" checkout -q -b main
@@ -18,6 +27,15 @@ EOF
 
 git -C "$REPO" add README.md
 git -C "$REPO" commit -q -m "chore: initial"
+
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "exec" ]] || exit 2
+while true; do sleep 5; done
+EOF
+chmod +x "$FAKE_BIN/codex"
 
 $CLI --repo "$REPO" task init
 
@@ -33,7 +51,7 @@ EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 
-RUN_OUT="$($CLI --repo "$REPO" run start --trigger smoke-complete-initial)"
+RUN_OUT="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-complete-initial)"
 echo "$RUN_OUT"
 
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
@@ -51,7 +69,7 @@ echo "done" > "$WT_A/agent-output.txt"
 git -C "$WT_A" add agent-output.txt
 git -C "$WT_A" commit -q -m "feat: complete T1-001"
 
-COMPLETE_OUT="$($CLI --repo "$WT_A" --state-dir "$REPO/.state" task complete AgentA app-shell T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
+COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$WT_A" --state-dir "$REPO/.state" task complete AgentA app-shell T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
 echo "$COMPLETE_OUT"
 
 echo "$COMPLETE_OUT" | grep -q "Marked task DONE"
@@ -68,9 +86,29 @@ fi
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-complete-next)"
 echo "$STATUS_OUT"
 
-echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 owner=AgentB reason=active_lock source=lock"
+echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 owner=AgentB reason=active_worker source=pid"
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
 
+PID_META="$REPO/.state/orchestrator/t1-002.pid"
+if [[ ! -f "$PID_META" ]]; then
+  echo "missing pid metadata for auto-started task: $PID_META"
+  exit 1
+fi
+
+PID="$(awk -F'=' '$1=="pid"{print $2}' "$PID_META" | tr -d '[:space:]')"
+if [[ ! "$PID" =~ ^[0-9]+$ ]]; then
+  echo "invalid pid for auto-started task: $PID"
+  exit 1
+fi
+
+if ! kill -0 "$PID" >/dev/null 2>&1; then
+  echo "auto-started worker pid is not alive: $PID"
+  exit 1
+fi
+
 grep -q "| T1-001 | App shell bootstrap | AgentA | - | seed | DONE |" "$REPO/TODO.md"
+
+LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
+echo "$LAST_SUBJECT" | grep -q "task(T1-001): smoke complete"
 
 echo "task complete auto run-start smoke test passed"
