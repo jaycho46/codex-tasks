@@ -19,7 +19,8 @@ scripts/codex-teams status [--json|--tui] [--trigger <label>] [--max-start <n>]
 Includes scheduler readiness, excluded tasks (with reasons), runtime state counts, and lock snapshots.
 
 - `--tui`: launch interactive status dashboard via `textual` (TTY required).
-- TUI shows ready/excluded/runtime/locks and the task board by default; task board is fixed at the bottom and toggled with `t`.
+- TUI shows a dashboard layout with settings panel (logo+config), ready tasks, running agents, and a bottom `Task / Log` tab panel (switch with `1` / `2`).
+- TUI supports run start (`r`) and emergency stop (`e`) with confirmation modals.
 - TUI auto-refreshes scheduler/runtime/task-board state every 2 seconds.
 - If `--tui` is used in non-interactive execution (tests/CI), it falls back to text output.
 - Install dependency for interactive mode: `python3 -m pip install textual`
@@ -35,7 +36,8 @@ scripts/codex-teams task update <agent> <task_id> <status> <summary>
 scripts/codex-teams task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
 scripts/codex-teams task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
 scripts/codex-teams task cleanup-stale [--apply]
-scripts/codex-teams task emergency-stop [--reason <text>] [--apply]
+scripts/codex-teams task emergency-stop [--reason <text>] [--yes]
+scripts/codex-teams emergency-stop [--reason <text>] [--yes]
 ```
 
 `task init` checks whether the state directory path is ignored in `.gitignore`.
@@ -49,6 +51,11 @@ scripts/codex-teams task emergency-stop [--reason <text>] [--apply]
 - use it as the final step to merge task branch and clean up worktree/branch
 - merge strategy default: `rebase-then-ff` (auto-rebase task branch onto `main` when ff-only merge fails)
 - use `--merge-strategy ff-only` to keep strict fast-forward behavior
+
+`task emergency-stop` behavior:
+- wraps `task stop --all --apply` as a single command
+- requires interactive confirmation (type `yes`)
+- use `--yes` to skip confirmation (for non-interactive runs/automation)
 
 Commit message rules (task worktree):
 - Use `<type>: <summary> (<task_id>)` for deliverable commits.

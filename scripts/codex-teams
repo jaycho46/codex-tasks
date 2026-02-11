@@ -27,7 +27,8 @@ Usage:
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] task cleanup-stale [--apply]
-  codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] task emergency-stop [--reason <text>] [--apply]
+  codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] task emergency-stop [--reason <text>] [--yes]
+  codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] emergency-stop [--reason <text>] [--yes]
 
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] worktree create <agent> <task_id> [base_branch] [parent_dir]
   codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] worktree start <agent> <scope> <task_id> [base_branch] [parent_dir] [summary]
@@ -95,7 +96,7 @@ while [[ $# -gt 0 ]]; do
       codex_teams_usage
       exit 0
       ;;
-    status|task|worktree|run)
+    status|task|worktree|run|emergency-stop)
       break
       ;;
     *)
@@ -113,6 +114,7 @@ case "$domain" in
   task) dispatch_task "$@" ;;
   worktree) dispatch_worktree "$@" ;;
   run) dispatch_run "$@" ;;
+  emergency-stop) cmd_task_emergency_stop "$@" ;;
   "") codex_teams_usage ;;
   *) die "Unknown domain: $domain" ;;
 esac

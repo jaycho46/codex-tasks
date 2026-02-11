@@ -1174,19 +1174,20 @@ cmd_task_cleanup_stale() {
 }
 
 cmd_task_emergency_stop() {
-  load_runtime_context
-
-  local apply=0
   local reason="emergency stop requested"
+  local assume_yes=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --apply)
-        apply=1
-        ;;
       --reason)
         shift || true
         [[ $# -gt 0 ]] || die "Missing value for --reason"
         reason="$1"
+        ;;
+      --yes|-y)
+        assume_yes=1
+        ;;
+      --apply)
+        # Backward-compatible no-op: emergency-stop now always applies.
         ;;
       *)
         die "Unknown task emergency-stop option: $1"
@@ -1195,55 +1196,23 @@ cmd_task_emergency_stop() {
     shift || true
   done
 
-  refresh_active_pid_registry
-
-  local total alive
-  total="$(awk 'NF > 0 {count++} END {print count+0}' "$ACTIVE_PID_FILE")"
-  alive="$(awk -F'\t' 'NF > 0 && $2 == "1" {count++} END {print count+0}' "$ACTIVE_PID_FILE")"
-
-  echo "Action: task emergency-stop"
-  echo "Reason: $reason"
-  echo "Registry: $ACTIVE_PID_FILE"
-  echo "Targets: total=$total alive=$alive"
-
-  local killed=0 failed=0
-  while IFS=$'\t' read -r pid alive_flag task_id owner scope started backend label session worktree; do
-    [[ -n "${pid:-}" ]] || continue
-
-    if [[ "$apply" -eq 0 ]]; then
-      if [[ "$alive_flag" == "1" ]]; then
-        echo "- pid=$pid task=${task_id:-N/A} owner=${owner:-N/A} [PLAN] terminate pid"
-      else
-        echo "- pid=$pid task=${task_id:-N/A} owner=${owner:-N/A} [PLAN] verify already exited"
-      fi
-      continue
+  if [[ "$assume_yes" -eq 0 ]]; then
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      die "task emergency-stop requires interactive confirmation. Re-run with --yes to proceed."
     fi
-
-    if [[ "$alive_flag" == "1" ]]; then
-      if terminate_pid "$pid"; then
-        echo "- pid=$pid task=${task_id:-N/A} owner=${owner:-N/A} [OK] terminated"
-        killed=$((killed + 1))
-      else
-        echo "- pid=$pid task=${task_id:-N/A} owner=${owner:-N/A} [ERROR] terminate failed"
-        failed=$((failed + 1))
-      fi
-    else
-      echo "- pid=$pid task=${task_id:-N/A} owner=${owner:-N/A} [SKIP] already not alive"
+    echo "Action: EMERGENCY STOP"
+    echo "This will execute: codex-teams task stop --all --apply"
+    echo "Reason: $reason"
+    printf "Continue? type 'yes' to proceed: "
+    local answer=""
+    read -r answer
+    if [[ "$answer" != "yes" ]]; then
+      echo "Canceled emergency stop."
+      return 0
     fi
-  done < "$ACTIVE_PID_FILE"
-
-  if [[ "$apply" -eq 0 ]]; then
-    echo "Mode: DRY-RUN (no mutations)"
-    return
   fi
 
-  append_update_log "CodexTeams" "N/A" "BLOCKED" "Emergency stop executed: $reason (killed=$killed failed=$failed)"
-  refresh_active_pid_registry
-  echo "Summary: killed=$killed failed=$failed"
-
-  if [[ "$failed" -gt 0 ]]; then
-    return 1
-  fi
+  cmd_task_stop --all --apply --reason "$reason"
 }
 
 pid_meta_path_for_task() {
