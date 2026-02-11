@@ -53,6 +53,8 @@ def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
         return rows
 
     for pid_meta in sorted(base.glob("*.pid")):
+        if not pid_meta.is_file():
+            continue
         task_id = read_field(pid_meta, "task_id")
         owner = read_field(pid_meta, "owner")
         scope = read_field(pid_meta, "scope")

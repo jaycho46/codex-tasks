@@ -49,10 +49,12 @@ scripts/codex-teams worktree list
 ### Scheduler domain
 
 ```bash
-scripts/codex-teams run start [--dry-run] [--no-launch] [--trigger <label>] [--max-start <n>]
+scripts/codex-teams run start [--dry-run] [--launch|--no-launch] [--trigger <label>] [--max-start <n>]
 ```
 
-MVP behavior is start-only (`no-launch` default): it creates/locks/updates task state but does not launch codex workers.
+Default behavior is start-only (`no-launch`): it creates/locks/updates task state but does not launch codex workers.
+Use `--launch` to start detached `codex exec` workers and emit pid metadata under `.state/orchestrator/*.pid`.
+If task start/launch fails (for example lock conflicts), scheduler rollback will release owned lock/state and terminate spawned `codex` background pids before cleanup.
 
 ## Ready task selection behavior
 
@@ -89,6 +91,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/smoke/test_run_start_dry_run.sh
 bash tests/smoke/test_run_start_lock_cleanup.sh
 bash tests/smoke/test_run_start_after_done.sh
+bash tests/smoke/test_run_start_launch_codex_exec.sh
+bash tests/smoke/test_run_start_rollback_kills_codex_on_launch_error.sh
 bash tests/smoke/test_run_start_scenario.sh
 bash tests/smoke/test_task_complete_auto_run_start.sh
 bash tests/smoke/test_status_tui_fallback.sh

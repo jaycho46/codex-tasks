@@ -1056,6 +1056,199 @@ cmd_task_emergency_stop() {
   fi
 }
 
+split_shell_words() {
+  local raw="${1:-}"
+  "$PYTHON_BIN" - "$raw" <<'PY'
+import shlex
+import sys
+
+raw = sys.argv[1]
+if not raw.strip():
+    raise SystemExit(0)
+
+for token in shlex.split(raw):
+    print(token)
+PY
+}
+
+build_codex_worker_prompt() {
+  local task_id="${1:-}"
+  local task_title="${2:-}"
+  local owner="${3:-}"
+  local scope="${4:-}"
+  local agent="${5:-}"
+  local trigger="${6:-manual}"
+  local worktree_path="${7:-}"
+
+  cat <<PROMPT
+Task assignment: ${task_id} (${task_title})
+Owner: ${owner}
+Scope: ${scope}
+Trigger: ${trigger}
+
+Work only on this task in this worktree:
+${worktree_path}
+
+Execution rules:
+- Keep changes scoped to the task.
+- Report progress when meaningful:
+  scripts/codex-teams --repo "${worktree_path}" --state-dir "${STATE_DIR}" task update "${agent}" "${task_id}" IN_PROGRESS "progress update"
+- When complete, finish with:
+  scripts/codex-teams --repo "${worktree_path}" --state-dir "${STATE_DIR}" task complete "${agent}" "${scope}" "${task_id}" --summary "task complete"
+PROMPT
+}
+
+launch_codex_exec_worker() {
+  local task_id="${1:-}"
+  local task_title="${2:-}"
+  local owner="${3:-}"
+  local scope="${4:-}"
+  local agent="${5:-}"
+  local trigger="${6:-manual}"
+  local worktree_path="${7:-}"
+
+  [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
+  command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
+
+  local pid_meta logs_dir log_file pid started_at prompt
+  local task_slug
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || task_slug="$task_id"
+
+  pid_meta="$ORCH_DIR/${task_slug}.pid"
+  logs_dir="$ORCH_DIR/logs"
+  mkdir -p "$logs_dir"
+  log_file="$logs_dir/${task_slug}-$(date -u +%Y%m%dT%H%M%SZ).log"
+
+  if [[ -f "$pid_meta" ]]; then
+    local existing_pid
+    existing_pid="$(read_field "$pid_meta" "pid")"
+    if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" >/dev/null 2>&1; then
+      echo "[ERROR] Active pid metadata already exists for task=$task_id pid=$existing_pid file=$pid_meta"
+      return 1
+    fi
+    rm -f "$pid_meta"
+  fi
+
+  local -a codex_flags=()
+  while IFS= read -r token; do
+    [[ -n "$token" ]] || continue
+    codex_flags+=("$token")
+  done < <(split_shell_words "$CODEX_FLAGS")
+
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path")"
+
+  local -a codex_cmd=(codex exec)
+  if [[ "${#codex_flags[@]}" -gt 0 ]]; then
+    codex_cmd+=("${codex_flags[@]}")
+  fi
+  codex_cmd+=(--cd "$worktree_path" "$prompt")
+
+  nohup "${codex_cmd[@]}" >"$log_file" 2>&1 &
+  pid="$!"
+
+  sleep 0.2
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    echo "[ERROR] codex exec exited immediately: task=$task_id owner=$owner log=$log_file"
+    return 1
+  fi
+
+  if [[ -d "$pid_meta" ]]; then
+    echo "[ERROR] Invalid pid metadata path (directory): $pid_meta"
+    terminate_pid "$pid" >/dev/null 2>&1 || true
+    return 1
+  fi
+
+  started_at="$(timestamp_utc)"
+  if ! cat > "$pid_meta" <<PID_META
+pid=$pid
+task_id=$task_id
+owner=$owner
+scope=$scope
+worktree=$worktree_path
+started_at=$started_at
+launch_backend=codex_exec
+launch_label=N/A
+tmux_session=N/A
+log_file=$log_file
+trigger=$trigger
+PID_META
+  then
+    echo "[ERROR] Failed to write pid metadata: $pid_meta"
+    terminate_pid "$pid" >/dev/null 2>&1 || true
+    return 1
+  fi
+
+  echo "Launched codex worker: task=$task_id owner=$owner pid=$pid log=$log_file"
+}
+
+rollback_start_attempt() {
+  local task_id="${1:-}"
+  local owner="${2:-}"
+  local scope="${3:-}"
+  local branch_name="${4:-}"
+  local branch_existed_before="${5:-0}"
+  local worktree_existed_before="${6:-0}"
+  local preferred_worktree_path="${7:-}"
+  local reason="${8:-start failed}"
+
+  local task_slug pid_meta pid tmux_session launch_label
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || task_slug="$task_id"
+  pid_meta="$ORCH_DIR/${task_slug}.pid"
+
+  if [[ -f "$pid_meta" ]]; then
+    pid="$(read_field "$pid_meta" "pid")"
+    tmux_session="$(read_field "$pid_meta" "tmux_session")"
+    launch_label="$(read_field "$pid_meta" "launch_label")"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      if terminate_pid "$pid"; then
+        echo "[ROLLBACK] terminated codex pid: $pid"
+      else
+        echo "[ROLLBACK][WARN] failed to terminate codex pid: $pid"
+      fi
+    fi
+    kill_tmux_session_if_any "$tmux_session" >/dev/null 2>&1 || true
+    kill_launch_label_if_any "$launch_label" >/dev/null 2>&1 || true
+    rm -f "$pid_meta" >/dev/null 2>&1 || true
+  fi
+
+  local lock_file lock_owner lock_task
+  lock_file="$LOCK_DIR/$(normalize_scope "$scope").lock"
+  if [[ -f "$lock_file" ]]; then
+    lock_owner="$(read_field "$lock_file" "owner")"
+    lock_task="$(read_field "$lock_file" "task_id")"
+    if [[ "$lock_owner" == "$owner" && "$lock_task" == "$task_id" ]]; then
+      rm -f "$lock_file" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  rollback_task_to_todo "$task_id" "$owner" "$reason" >/dev/null 2>&1 || true
+
+  local current_worktree=""
+  if [[ -n "$branch_name" ]]; then
+    current_worktree="$(find_worktree_for_branch "$REPO_ROOT" "$branch_name" || true)"
+  fi
+  local worktree_path="$current_worktree"
+  if [[ -z "$worktree_path" ]]; then
+    worktree_path="$preferred_worktree_path"
+  fi
+
+  if [[ "$worktree_existed_before" -eq 0 ]]; then
+    if [[ -n "$worktree_path" && -d "$worktree_path" && "$worktree_path" != "$REPO_ROOT" ]]; then
+      git -C "$REPO_ROOT" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ "$branch_existed_before" -eq 0 && -n "$branch_name" ]]; then
+    if [[ -z "$(find_worktree_for_branch "$REPO_ROOT" "$branch_name" || true)" ]]; then
+      if git -C "$REPO_ROOT" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
+        git -C "$REPO_ROOT" branch -D "$branch_name" >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
+}
+
 print_scheduler_snapshot() {
   local json="${1:-}"
   "$PYTHON_BIN" - "$json" <<'PY'
@@ -1131,6 +1324,9 @@ cmd_run_start() {
       --dry-run)
         dry_run=1
         ;;
+      --launch)
+        no_launch=0
+        ;;
       --no-launch)
         no_launch=1
         ;;
@@ -1159,8 +1355,8 @@ cmd_run_start() {
     fi
   fi
 
-  if [[ "$no_launch" -ne 1 ]]; then
-    echo "Launch mode is not available in this build. Using no-launch behavior."
+  if [[ "$dry_run" -eq 0 && "$no_launch" -eq 0 ]]; then
+    command -v codex >/dev/null 2>&1 || die "codex command not found. Use --no-launch or install Codex CLI."
   fi
 
   local -a ready_cmd=(ready --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --trigger "$trigger")
@@ -1189,11 +1385,23 @@ cmd_run_start() {
   while IFS=$'\t' read -r task_id task_title owner scope deps status; do
     [[ -n "${task_id:-}" ]] || continue
 
-    local agent summary
+    local agent summary start_output worktree_path
+    local branch_name expected_worktree_path
+    local branch_existed_before=0
+    local worktree_existed_before=0
     local -a start_cmd
 
     agent="$(normalize_agent_name "$owner")"
     summary="Auto-start by scheduler (${trigger})"
+    branch_name="$(branch_name_for "$agent" "$task_id" || true)"
+    expected_worktree_path="$(default_worktree_path_for "$REPO_NAME" "$agent" "$task_id" "$WORKTREE_PARENT_DIR")"
+
+    if [[ -n "$branch_name" ]] && git -C "$REPO_ROOT" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
+      branch_existed_before=1
+    fi
+    if [[ -n "$branch_name" && -n "$(find_worktree_for_branch "$REPO_ROOT" "$branch_name" || true)" ]]; then
+      worktree_existed_before=1
+    fi
 
     if [[ "$dry_run" -eq 1 ]]; then
       echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $scope $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
@@ -1207,9 +1415,28 @@ cmd_run_start() {
     fi
     start_cmd+=(worktree start "$agent" "$scope" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
 
-    if ! AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}"; then
+    if ! start_output="$(AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}" 2>&1)"; then
+      echo "$start_output"
       echo "[ERROR] Failed to start task=$task_id owner=$owner"
+      rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
       continue
+    fi
+
+    echo "$start_output"
+
+    worktree_path="$(printf '%s\n' "$start_output" | awk -F'=' '/^worktree=/{print substr($0,10)}' | tail -n1)"
+    if [[ -z "$worktree_path" || ! -d "$worktree_path" ]]; then
+      echo "[ERROR] Missing worktree path after start: task=$task_id owner=$owner"
+      rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
+      continue
+    fi
+
+    if [[ "$no_launch" -eq 0 ]]; then
+      if ! launch_codex_exec_worker "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path"; then
+        echo "[ERROR] Failed to launch codex worker: task=$task_id owner=$owner"
+        rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
+        continue
+      fi
     fi
 
     started_count=$((started_count + 1))
