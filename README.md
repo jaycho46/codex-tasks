@@ -2,14 +2,18 @@
 
 ![codex-teams_0_1_1](https://github.com/user-attachments/assets/c2f8a3c5-880a-43b3-a363-4b8f76c53e11)
 
+
 <p align="center">
-  Orchestrate multi-agent coding on git worktrees with explicit lifecycle and state.
+  <img alt="codex skill" src="https://img.shields.io/badge/Codex%20Skill-0f766e?style=for-the-badge">
+  <img alt="codex skill" src="https://img.shields.io/badge/macOS-000000?logoColor=F0F0F0&style=for-the-badge">
+  <br/>
+  <img alt="license" src="https://img.shields.io/github/license/jaycho46/codex-teams?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/github/v/release/jaycho46/codex-teams?style=for-the-badge">
+  <img alt="tests" src="https://img.shields.io/github/actions/workflow/status/jaycho46/codex-teams/ci.yml?branch=main&style=for-the-badge&label=tests">
 </p>
 
 <p align="center">
-  <img alt="codex skill" src="https://img.shields.io/badge/Codex%20Skill-Available-0f766e?style=for-the-badge">
-  <img alt="version" src="https://img.shields.io/github/v/release/jaycho46/codex-teams?style=for-the-badge">
-  <img alt="tests" src="https://img.shields.io/github/actions/workflow/status/jaycho46/codex-teams/ci.yml?branch=main&style=for-the-badge&label=tests">
+  Orchestrate multi-agent coding on git worktrees with explicit lifecycle and state.
 </p>
 
 `codex-teams` is a unified orchestration CLI for teams running parallel coding agents.
