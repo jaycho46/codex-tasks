@@ -51,6 +51,9 @@ cat > "$REPO/TODO.md" <<'EOF'
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
+"$CLI" --repo "$REPO" task scaffold-specs
+git -C "$REPO" add tasks/specs
+git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$(FAKE_CODEX_ARGS_FILE="$FAKE_ARGS" PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --trigger smoke-launch --max-start 1)"
 echo "$RUN_OUT"
@@ -115,6 +118,10 @@ grep -F -- 'git add -A && git commit -m "chore: mark T8-001 done"' "$FAKE_ARGS" 
 grep -F -- 'Use task complete as the final command to perform merge and worktree cleanup.' "$FAKE_ARGS" >/dev/null
 grep -F -- 'If task complete hits merge/rebase conflicts, resolve them as much as possible and rerun task complete.' "$FAKE_ARGS" >/dev/null
 grep -F -- 'Only if it still fails after resolution attempts, report BLOCKED:' "$FAKE_ARGS" >/dev/null
+grep -F -- 'Task spec file:' "$FAKE_ARGS" >/dev/null
+grep -F -- '/tasks/specs/T8-001.md' "$FAKE_ARGS" >/dev/null
+grep -F -- 'Task brief:' "$FAKE_ARGS" >/dev/null
+grep -F -- 'The task spec file is the source of truth for implementation details.' "$FAKE_ARGS" >/dev/null
 
 PATH="$FAKE_BIN:$PATH" \
   "$CLI" --repo "$REPO" task stop --all --apply --reason "smoke launch cleanup"

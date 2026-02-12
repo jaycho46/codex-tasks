@@ -274,6 +274,244 @@ cmd_task_init() {
   echo "Initialized state store: $STATE_DIR"
 }
 
+cmd_task_scaffold_specs() {
+  load_runtime_context
+  initialize_task_state
+
+  local target_task=""
+  local dry_run=0
+  local force=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --task)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --task"
+        target_task="$1"
+        ;;
+      --dry-run)
+        dry_run=1
+        ;;
+      --force)
+        force=1
+        ;;
+      *)
+        die "Unknown task scaffold-specs option: $1"
+        ;;
+    esac
+    shift || true
+  done
+
+  local selected_rows
+  if ! selected_rows="$("$PYTHON_BIN" - "$SCRIPT_DIR/py" "$TODO_FILE" "$TODO_SCHEMA_JSON" "$target_task" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+py_dir = Path(sys.argv[1]).resolve()
+todo_file = Path(sys.argv[2]).resolve()
+schema = json.loads(sys.argv[3])
+target_task = (sys.argv[4] or "").strip()
+
+sys.path.insert(0, str(py_dir))
+from todo_parser import TodoError, parse_todo
+
+try:
+    tasks, _ = parse_todo(todo_file, schema)
+except TodoError as exc:
+    print(str(exc), file=sys.stderr)
+    raise SystemExit(2)
+
+if target_task:
+    selected = [task for task in tasks if str(task.get("id") or "") == target_task]
+    if not selected:
+        print(f"Task not found in TODO board: {target_task}", file=sys.stderr)
+        raise SystemExit(2)
+else:
+    selected = [task for task in tasks if str(task.get("status") or "") == "TODO"]
+
+for task in selected:
+    task_id = str(task.get("id") or "")
+    title = str(task.get("title") or "")
+    print(f"{task_id}\t{title}")
+PY
+)"; then
+    die "Failed to resolve scaffold targets from TODO board."
+  fi
+
+  if [[ -z "$(trim "$selected_rows")" ]]; then
+    echo "No TODO tasks selected for spec scaffolding."
+    return 0
+  fi
+
+  local generated=0
+  local skipped=0
+  local action_label
+  while IFS=$'\t' read -r task_id task_title; do
+    [[ -n "${task_id:-}" ]] || continue
+
+    local spec_rel spec_abs
+    spec_rel="tasks/specs/${task_id}.md"
+    spec_abs="$REPO_ROOT/$spec_rel"
+
+    if [[ -f "$spec_abs" && "$force" -eq 0 ]]; then
+      echo "[SKIP] exists: $spec_rel"
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    if [[ "$dry_run" -eq 1 ]]; then
+      action_label="create"
+      if [[ -f "$spec_abs" ]]; then
+        action_label="overwrite"
+      fi
+      echo "[DRY-RUN] ${action_label}: $spec_rel"
+      generated=$((generated + 1))
+      continue
+    fi
+
+    mkdir -p "$(dirname "$spec_abs")"
+    cat > "$spec_abs" <<EOF
+# Task Spec: $task_id
+
+Task title: ${task_title:-N/A}
+
+## Goal
+Define the concrete outcome for $task_id.
+
+## In Scope
+- Describe what must be implemented for this task.
+- List files, modules, or behaviors that are in scope.
+
+## Acceptance Criteria
+- [ ] Implementation is complete and testable.
+- [ ] Relevant tests or validation steps are added or updated.
+- [ ] Changes are ready to merge with a clear completion summary.
+EOF
+    echo "[OK] wrote: $spec_rel"
+    generated=$((generated + 1))
+  done <<< "$selected_rows"
+
+  echo "Spec scaffold summary: generated=$generated skipped=$skipped dry_run=$dry_run force=$force"
+}
+
+cmd_task_new() {
+  load_runtime_context
+  initialize_task_state
+
+  local task_id="${1:-}"
+  shift || true
+  local summary="${*:-}"
+
+  [[ -n "$task_id" && -n "$summary" ]] || die "Usage: codex-teams task new <task_id> <summary>"
+  [[ "$task_id" != *"|"* ]] || die "task_id must not contain '|': $task_id"
+
+  local default_owner
+  default_owner="$("$PYTHON_BIN" - "$OWNERS_JSON" <<'PY'
+import json
+import sys
+
+owners = json.loads(sys.argv[1])
+if not isinstance(owners, dict) or not owners:
+    raise SystemExit(2)
+print(next(iter(owners.keys())))
+PY
+)"
+  [[ -n "$default_owner" ]] || die "Unable to resolve default owner from [owners] config."
+
+  if ! "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$task_id" "$summary" "$default_owner" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+todo_file = Path(sys.argv[1])
+schema = json.loads(sys.argv[2])
+task_id = sys.argv[3].strip()
+title = sys.argv[4].strip()
+owner = sys.argv[5].strip()
+
+if not task_id:
+    print("Error: task_id is empty", file=sys.stderr)
+    raise SystemExit(2)
+if not title:
+    print("Error: summary is empty", file=sys.stderr)
+    raise SystemExit(2)
+
+id_col = int(schema["id_col"])
+title_col = int(schema["title_col"])
+owner_col = int(schema["owner_col"])
+deps_col = int(schema["deps_col"])
+status_col = int(schema["status_col"])
+
+lines = todo_file.read_text(encoding="utf-8").splitlines()
+table_rows = [idx for idx, line in enumerate(lines) if line.startswith("|")]
+if not table_rows:
+    print("Error: TODO board table not found", file=sys.stderr)
+    raise SystemExit(2)
+
+header_idx = table_rows[0]
+template_cols = [cell.strip() for cell in lines[header_idx].split("|")]
+for idx in table_rows:
+    cols = [cell.strip() for cell in lines[idx].split("|")]
+    if id_col - 1 < len(cols) and cols[id_col - 1] == "ID":
+        header_idx = idx
+        template_cols = cols
+        break
+
+for idx in table_rows:
+    cols = [cell.strip() for cell in lines[idx].split("|")]
+    if id_col - 1 >= len(cols):
+        continue
+    existing = cols[id_col - 1]
+    if not existing or existing == "ID" or set(existing) == {"-"}:
+        continue
+    if existing == task_id:
+        print(f"Error: Task already exists in TODO board: {task_id}", file=sys.stderr)
+        raise SystemExit(2)
+
+width = max(len(template_cols), status_col + 1)
+if width < 3:
+    width = 3
+
+row_cells = [""] * (width - 2)
+
+def set_by_col(col_no: int, value: str) -> None:
+    i = col_no - 2
+    if 0 <= i < len(row_cells):
+        row_cells[i] = value
+
+set_by_col(id_col, task_id)
+set_by_col(title_col, title)
+set_by_col(owner_col, owner)
+set_by_col(deps_col, "-")
+set_by_col(status_col, "TODO")
+
+notes_col = None
+for i, cell in enumerate(template_cols):
+    if cell.strip().lower() == "notes":
+        notes_col = i + 1
+        break
+if notes_col is not None:
+    set_by_col(notes_col, "")
+
+escaped_cells = [cell.replace("|", "\\|").strip() for cell in row_cells]
+new_row = "| " + " | ".join(escaped_cells) + " |"
+
+insert_idx = max(table_rows) + 1
+lines.insert(insert_idx, new_row)
+
+todo_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+print(f"Added task to TODO board: {task_id} (owner={owner})")
+PY
+  then
+    die "Failed to append new task to TODO board."
+  fi
+
+  local new_task_id="$task_id"
+  cmd_task_scaffold_specs --task "$new_task_id"
+  echo "Created task: id=$new_task_id owner=$default_owner title=$summary"
+}
+
 cmd_task_lock() {
   load_runtime_context
 
@@ -1324,7 +1562,12 @@ build_codex_worker_prompt() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
+  local spec_rel_path="${8:-}"
+  local goal_summary="${9:-}"
+  local in_scope_summary="${10:-}"
+  local acceptance_summary="${11:-}"
   local rules_file rendered_rules worker_cli_bin worker_cli_cmd
+  local spec_path_display
 
   if [[ -n "${SCRIPT_DIR:-}" ]]; then
     rules_file="$SCRIPT_DIR/prompts/codex-worker-rules.md"
@@ -1349,11 +1592,27 @@ build_codex_worker_prompt() {
   rendered_rules="${rendered_rules//__TASK_ID__/$task_id}"
   rendered_rules="${rendered_rules//__SCOPE__/$scope}"
 
+  if [[ -n "$spec_rel_path" ]]; then
+    spec_path_display="${worktree_path}/${spec_rel_path}"
+  else
+    spec_path_display="N/A"
+  fi
+
   cat <<PROMPT
 Task assignment: ${task_id} (${task_title})
 Owner: ${owner}
 Scope: ${scope}
 Trigger: ${trigger}
+
+Task spec file:
+${spec_path_display}
+
+Task brief:
+- Goal: ${goal_summary}
+- In Scope: ${in_scope_summary}
+- Acceptance Criteria: ${acceptance_summary}
+
+The task spec file is the source of truth for implementation details.
 
 Work only on this task in this worktree:
 ${worktree_path}
@@ -1370,6 +1629,10 @@ launch_codex_exec_worker() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
+  local spec_rel_path="${8:-}"
+  local goal_summary="${9:-}"
+  local in_scope_summary="${10:-}"
+  local acceptance_summary="${11:-}"
 
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
@@ -1431,7 +1694,7 @@ launch_codex_exec_worker() {
     codex_flags+=(--dangerously-bypass-approvals-and-sandbox)
   fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -1690,7 +1953,7 @@ cmd_run_start() {
   trap "rm -f '$run_lock_dir/pid' >/dev/null 2>&1 || true; rmdir '$run_lock_dir' >/dev/null 2>&1 || true" EXIT
 
   local started_count=0
-  while IFS=$'\t' read -r task_id task_title owner scope deps status; do
+  while IFS=$'\t' read -r task_id task_title owner scope deps status spec_rel_path goal_summary in_scope_summary acceptance_summary; do
     [[ -n "${task_id:-}" ]] || continue
 
     local agent summary start_output worktree_path
@@ -1740,7 +2003,7 @@ cmd_run_start() {
     fi
 
     if [[ "$no_launch" -eq 0 ]]; then
-      if ! launch_codex_exec_worker "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path"; then
+      if ! launch_codex_exec_worker "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
         echo "[ERROR] Failed to launch codex worker: task=$task_id owner=$owner"
         rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
         continue

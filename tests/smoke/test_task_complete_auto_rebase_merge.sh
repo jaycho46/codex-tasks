@@ -29,6 +29,9 @@ cat > "$REPO/TODO.md" <<'EOF'
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
+"$CLI" --repo "$REPO" task scaffold-specs
+git -C "$REPO" add tasks/specs
+git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-auto-rebase --max-start 1)"
 echo "$RUN_OUT"

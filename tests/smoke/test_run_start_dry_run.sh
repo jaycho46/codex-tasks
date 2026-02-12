@@ -36,6 +36,8 @@ pid=$$
 worktree=$REPO
 EOF
 
+"$CLI" --repo "$REPO" task scaffold-specs >/dev/null
+
 OUTPUT="$($CLI --repo "$REPO" run start --dry-run --trigger smoke)"
 
 echo "$OUTPUT"

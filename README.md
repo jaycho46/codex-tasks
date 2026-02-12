@@ -68,10 +68,15 @@ This is designed to reduce common multi-agent failure modes: duplicate starts, o
 # 1) Initialize task domain and state hygiene
 codex-teams init
 
-# 2) Start ready tasks from TODO.md
+# 2) Create a TODO task + spec template in one command
+codex-teams task new T1-001 "Implement app shell bootstrap"
+
+# 3) Fill Goal/In Scope/Acceptance Criteria in tasks/specs/T1-001.md
+
+# 4) Start ready tasks from TODO.md
 codex-teams run start
 
-# 3) Open live dashboard (default command = status --tui)
+# 5) Open live dashboard (default command = status --tui)
 codex-teams
 ```
 
@@ -173,7 +178,9 @@ codex-teams task lock <agent> <scope> [task_id]
 codex-teams task unlock <agent> <scope>
 codex-teams task heartbeat <agent> <scope>
 codex-teams task update <agent> <task_id> <status> <summary>
+codex-teams task new <task_id> <summary>
 codex-teams task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
+codex-teams task scaffold-specs [--task <id>] [--dry-run] [--force]
 codex-teams task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
 codex-teams task cleanup-stale [--apply]
 codex-teams task emergency-stop [--reason <text>] [--yes]
@@ -185,8 +192,18 @@ Behavior notes:
 - `init` (alias: `task init`) manages `.gitignore` for state path (`ask` default, `yes`, `no`)
 - `task complete` does not create commits
 - `task complete` requires fully committed worktree and `DONE` task status
+- `task new` appends a TODO row and creates `tasks/specs/<task_id>.md` in one step
+- `task scaffold-specs` creates `tasks/specs/<task_id>.md` templates from TODO items
 - default merge strategy is `rebase-then-ff`; strict mode is `--merge-strategy ff-only`
 - `task emergency-stop` wraps `task stop --all --apply` with confirmation
+
+Task authoring workflow:
+
+1. Create tasks with `codex-teams task new <task_id> <summary>`.
+2. Fill `Goal`, `In Scope`, and `Acceptance Criteria` in generated spec files.
+3. Verify scheduler eligibility with `codex-teams run start --dry-run`.
+
+Detailed guide: [`docs/task-authoring-with-scaffold-specs.md`](docs/task-authoring-with-scaffold-specs.md)
 
 Commit message contract (task worktree):
 
@@ -219,6 +236,32 @@ Runtime behavior:
 - if `runtime.codex_flags` does not set sandbox mode, workers replace `--full-auto` with `--dangerously-bypass-approvals-and-sandbox`
 - worker prompt requests `$codex-teams` skill guardrails
 
+## Task Specs
+
+Task specs are stored at `tasks/specs/<task_id>.md`.
+
+Required sections:
+
+- `## Goal`
+- `## In Scope`
+- `## Acceptance Criteria`
+
+Spec helpers:
+
+```bash
+# Add one new task row and spec in one command
+codex-teams task new T1-001 "Implement app shell bootstrap"
+
+# Preview files that would be created from TODO tasks
+codex-teams task scaffold-specs --dry-run
+
+# Generate missing task specs for TODO items
+codex-teams task scaffold-specs
+
+# Generate or overwrite a specific task spec
+codex-teams task scaffold-specs --task T1-001 --force
+```
+
 ## Ready task selection
 
 `run start` and `status` derive ready tasks from `TODO.md`, then exclude tasks with active signals:
@@ -228,6 +271,8 @@ Runtime behavior:
 - `owner_busy`
 - `deps_not_ready`
 - `active_signal_conflict`
+- `missing_task_spec`
+- `invalid_task_spec`
 
 This blocks duplicate auto-start even when `main` branch still shows `TODO` rows while work is running in task worktrees.
 
@@ -263,6 +308,7 @@ CI expands that command into:
 python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/smoke/test_run_start_dry_run.sh
 bash tests/smoke/test_run_start_lock_cleanup.sh
+bash tests/smoke/test_run_start_requires_task_spec.sh
 bash tests/smoke/test_run_start_after_done.sh
 bash tests/smoke/test_run_start_launch_codex_exec.sh
 bash tests/smoke/test_run_start_rollback_kills_codex_on_launch_error.sh

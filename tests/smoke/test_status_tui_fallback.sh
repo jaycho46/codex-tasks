@@ -19,6 +19,8 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T9-001 | Ready task | AgentA | - | | TODO |
 EOF
 
+"$CLI" --repo "$REPO" task scaffold-specs >/dev/null
+
 assert_status_like_output() {
   local output="$1"
 

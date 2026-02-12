@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CLI="$ROOT/scripts/codex-teams"
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+REPO="$TMP_DIR/repo"
+mkdir -p "$REPO"
+git -C "$REPO" init -q
+
+"$CLI" --repo "$REPO" task init >/dev/null
+
+OUT_NEW="$("$CLI" --repo "$REPO" task new T4-321 "New task summary")"
+echo "$OUT_NEW"
+
+echo "$OUT_NEW" | grep -q "Added task to TODO board: T4-321"
+echo "$OUT_NEW" | grep -q "Created task: id=T4-321"
+
+grep -q "| T4-321 | New task summary | AgentA | - |  | TODO |" "$REPO/TODO.md"
+test -f "$REPO/tasks/specs/T4-321.md"
+grep -q "^## Goal$" "$REPO/tasks/specs/T4-321.md"
+grep -q "^## In Scope$" "$REPO/tasks/specs/T4-321.md"
+grep -q "^## Acceptance Criteria$" "$REPO/tasks/specs/T4-321.md"
+
+OUT_READY="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new)"
+echo "$OUT_READY"
+echo "$OUT_READY" | grep -q "\[DRY-RUN\].*T4-321"
+echo "$OUT_READY" | grep -q "Started tasks: 1"
+
+DUP_OUT="$TMP_DIR/task-new-dup.out"
+if "$CLI" --repo "$REPO" task new T4-321 "duplicate id" >"$DUP_OUT" 2>&1; then
+  echo "duplicate task creation should fail"
+  cat "$DUP_OUT"
+  exit 1
+fi
+grep -q "Task already exists in TODO board: T4-321" "$DUP_OUT"
+
+echo "task new creates todo and spec smoke test passed"

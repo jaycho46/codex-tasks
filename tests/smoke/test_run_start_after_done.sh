@@ -29,6 +29,9 @@ EOF
 
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
+"$CLI" --repo "$REPO" task scaffold-specs
+git -C "$REPO" add tasks/specs
+git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 # First scheduler run: only T1-001 should start.
 RUN1="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-after-done-initial)"

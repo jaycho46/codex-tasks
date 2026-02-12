@@ -19,6 +19,8 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T9-001 | Ready task | AgentA | - | | TODO |
 EOF
 
+"$CLI" --repo "$REPO" task scaffold-specs >/dev/null
+
 # First run should not leave run.lock behind.
 OUT1="$($CLI --repo "$REPO" run start --dry-run --trigger smoke-lock-cleanup)"
 echo "$OUT1"

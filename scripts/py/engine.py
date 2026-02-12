@@ -18,6 +18,7 @@ from state_model import (
     load_pid_inventory,
     summarize,
 )
+from task_spec import evaluate_task_spec
 from todo_parser import TodoError, build_indexes, deps_ready, parse_todo
 
 
@@ -231,6 +232,36 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             )
             continue
 
+        spec = evaluate_task_spec(ctx["repo_root"], task_id)
+        if not spec["exists"]:
+            excluded_tasks.append(
+                {
+                    "task_id": task_id,
+                    "title": task["title"],
+                    "owner": owner,
+                    "scope": scope,
+                    "deps": task["deps"],
+                    "status": task["status"],
+                    "reason": "missing_task_spec",
+                    "source": "scheduler",
+                }
+            )
+            continue
+        if not spec["valid"]:
+            excluded_tasks.append(
+                {
+                    "task_id": task_id,
+                    "title": task["title"],
+                    "owner": owner,
+                    "scope": scope,
+                    "deps": task["deps"],
+                    "status": task["status"],
+                    "reason": "invalid_task_spec",
+                    "source": "scheduler",
+                }
+            )
+            continue
+
         if not deps_ready(task["deps"], task_status, gates):
             excluded_tasks.append(
                 {
@@ -255,6 +286,10 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "scope": scope,
                 "deps": task["deps"],
                 "status": task["status"],
+                "spec_rel_path": str(spec.get("spec_rel_path") or ""),
+                "goal_summary": str(spec.get("goal_summary") or ""),
+                "in_scope_summary": str(spec.get("in_scope_summary") or ""),
+                "acceptance_summary": str(spec.get("acceptance_summary") or ""),
             }
         )
         scheduled_owner_keys.add(task_owner_key)
@@ -287,6 +322,10 @@ def cmd_ready(args: argparse.Namespace) -> None:
                         task["scope"],
                         task["deps"],
                         task["status"],
+                        str(task.get("spec_rel_path") or ""),
+                        str(task.get("goal_summary") or ""),
+                        str(task.get("in_scope_summary") or ""),
+                        str(task.get("acceptance_summary") or ""),
                     ]
                 )
             )

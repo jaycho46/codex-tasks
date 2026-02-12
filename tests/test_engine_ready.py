@@ -40,6 +40,31 @@ def _write_todo(repo_root: Path, rows: list[tuple[str, str, str, str, str, str]]
     (repo_root / "TODO.md").write_text("\n".join(table) + "\n", encoding="utf-8")
 
 
+def _write_specs(repo_root: Path, task_ids: list[str]) -> None:
+    spec_dir = repo_root / "tasks" / "specs"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    for task_id in task_ids:
+        (spec_dir / f"{task_id}.md").write_text(
+            "\n".join(
+                [
+                    f"# Task Spec: {task_id}",
+                    "",
+                    "## Goal",
+                    f"Deliver {task_id}.",
+                    "",
+                    "## In Scope",
+                    "- implement task behavior",
+                    "",
+                    "## Acceptance Criteria",
+                    "- [ ] criteria one",
+                    "- [ ] criteria two",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+
 def _write_lock(state_dir: Path, filename: str, owner: str, scope: str, task_id: str, worktree: Path) -> None:
     lock_dir = state_dir / "locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +125,7 @@ class EngineReadyTests(unittest.TestCase):
                     ("T1-005", "stale metadata", "AgentD", "-", "", "TODO"),
                 ],
             )
+            _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004", "T1-005"])
 
             state_dir = repo_root / ".state"
             _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
@@ -133,6 +159,7 @@ class EngineReadyTests(unittest.TestCase):
                     ("T2-001", "ready", "AgentA", "-", "", "TODO"),
                 ],
             )
+            _write_specs(repo_root, ["T2-001"])
 
             payload = _run_engine(repo_root, "status", "--format", "json")
 
@@ -162,12 +189,71 @@ class EngineReadyTests(unittest.TestCase):
                     ("T3-001", "ready", "AgentA", "-", "", "TODO"),
                 ],
             )
+            _write_specs(repo_root, ["T3-001"])
 
             proc = _run_engine_raw(repo_root, "status", "--format", "tui")
 
             self.assertIn("Scheduler: ready=1 excluded=0", proc.stdout)
             self.assertIn("Runtime: total=0 active=0 stale=0", proc.stdout)
             self.assertIn("Coordination: locks=0", proc.stdout)
+
+    def test_ready_excludes_task_when_spec_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            _init_git_repo(repo_root)
+
+            _write_todo(
+                repo_root,
+                [
+                    ("T4-001", "needs spec", "AgentA", "-", "", "TODO"),
+                ],
+            )
+
+            payload = _run_engine(repo_root, "ready")
+
+            self.assertEqual(payload["ready_tasks"], [])
+            self.assertEqual(payload["excluded_tasks"][0]["task_id"], "T4-001")
+            self.assertEqual(payload["excluded_tasks"][0]["reason"], "missing_task_spec")
+            self.assertEqual(payload["excluded_tasks"][0]["source"], "scheduler")
+
+    def test_ready_excludes_task_when_spec_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            _init_git_repo(repo_root)
+
+            _write_todo(
+                repo_root,
+                [
+                    ("T5-001", "invalid spec", "AgentA", "-", "", "TODO"),
+                ],
+            )
+
+            spec_dir = repo_root / "tasks" / "specs"
+            spec_dir.mkdir(parents=True, exist_ok=True)
+            (spec_dir / "T5-001.md").write_text(
+                "\n".join(
+                    [
+                        "# Task Spec: T5-001",
+                        "",
+                        "## Goal",
+                        "Goal text.",
+                        "",
+                        "## In Scope",
+                        "- in scope",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = _run_engine(repo_root, "ready")
+
+            self.assertEqual(payload["ready_tasks"], [])
+            self.assertEqual(payload["excluded_tasks"][0]["task_id"], "T5-001")
+            self.assertEqual(payload["excluded_tasks"][0]["reason"], "invalid_task_spec")
+            self.assertEqual(payload["excluded_tasks"][0]["source"], "scheduler")
 
 
 if __name__ == "__main__":

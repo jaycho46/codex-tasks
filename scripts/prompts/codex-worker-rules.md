@@ -11,6 +11,7 @@ CLI preflight:
 Execution rules:
 - Task lifecycle contract: this task was started by run start, and must end via task complete.
 - Do not self-start work using task lock/task update/worktree start.
+- Read and follow the task spec file at `tasks/specs/__TASK_ID__.md` before implementing.
 - Do not mark DONE unless task deliverable files were actually added or updated.
 - Do not finish with generic summaries such as "task complete" or "done".
 - Keep work scoped to the assigned task title and owner scope.

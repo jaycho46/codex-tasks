@@ -46,6 +46,9 @@ cat > "$REPO/TODO.md" <<'EOF'
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
+"$CLI" --repo "$REPO" task scaffold-specs
+git -C "$REPO" add tasks/specs
+git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 # Force launch metadata write failure after codex is spawned.
 mkdir -p "$REPO/.state/orchestrator/t8-009.pid"
