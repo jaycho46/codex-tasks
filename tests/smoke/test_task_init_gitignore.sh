@@ -11,7 +11,7 @@ REPO_YES="$TMP_DIR/repo-yes"
 mkdir -p "$REPO_YES"
 git -C "$REPO_YES" init -q
 
-OUT_YES="$("$CLI" --repo "$REPO_YES" task init --gitignore yes)"
+OUT_YES="$("$CLI" --repo "$REPO_YES" init --gitignore yes)"
 echo "$OUT_YES"
 echo "$OUT_YES" | grep -q "Added state path to .gitignore: .state/"
 grep -q '^.state/$' "$REPO_YES/.gitignore"
@@ -46,6 +46,6 @@ git -C "$REPO_ASK" init -q
 OUT_ASK="$("$CLI" --repo "$REPO_ASK" task init)"
 echo "$OUT_ASK"
 echo "$OUT_ASK" | grep -q "State path missing in .gitignore: .state/"
-echo "$OUT_ASK" | grep -q "Tip: run 'codex-teams task init --gitignore yes'"
+echo "$OUT_ASK" | grep -q "Tip: run 'codex-teams init --gitignore yes'"
 
 echo "task init gitignore smoke test passed"

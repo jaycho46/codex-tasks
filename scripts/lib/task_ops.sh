@@ -240,7 +240,7 @@ maybe_configure_state_gitignore() {
         fi
       else
         echo "State path missing in .gitignore: $entry"
-        echo "Tip: run 'codex-teams task init --gitignore yes' to add it automatically."
+        echo "Tip: run 'codex-teams init --gitignore yes' to add it automatically."
       fi
       ;;
     *)

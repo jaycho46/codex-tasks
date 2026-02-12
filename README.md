@@ -8,10 +8,9 @@
 </p>
 
 <p align="center">
-  <img alt="multi-agent" src="https://img.shields.io/badge/Multi--Agent-Worktree%20Native-111827?style=for-the-badge">
-  <img alt="scheduler" src="https://img.shields.io/badge/Scheduler-TODO.md%20Driven-0f766e?style=for-the-badge">
-  <img alt="runtime" src="https://img.shields.io/badge/Runtime-Codex%20Workers-0b3b8f?style=for-the-badge">
-  <img alt="coordination" src="https://img.shields.io/badge/Coordination-Locks%20%2B%20PID%20Guardrails-7c2d12?style=for-the-badge">
+  <img alt="codex skill" src="https://img.shields.io/badge/Codex%20Skill-Available-0f766e?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/github/v/release/jaycho46/codex-teams?style=for-the-badge">
+  <img alt="tests" src="https://img.shields.io/github/actions/workflow/status/jaycho46/codex-teams/ci.yml?branch=main&style=for-the-badge&label=tests">
 </p>
 
 `codex-teams` is a unified orchestration CLI for teams running parallel coding agents.
@@ -65,7 +64,7 @@ This is designed to reduce common multi-agent failure modes: duplicate starts, o
 
 ```bash
 # 1) Initialize task domain and state hygiene
-codex-teams task init
+codex-teams init
 
 # 2) Start ready tasks from TODO.md
 codex-teams run start
@@ -166,6 +165,7 @@ What you get:
 ### Task domain
 
 ```bash
+codex-teams init [--gitignore <ask|yes|no>]
 codex-teams task init [--gitignore <ask|yes|no>]
 codex-teams task lock <agent> <scope> [task_id]
 codex-teams task unlock <agent> <scope>
@@ -180,7 +180,7 @@ codex-teams emergency-stop [--reason <text>] [--yes]
 
 Behavior notes:
 
-- `task init` manages `.gitignore` for state path (`ask` default, `yes`, `no`)
+- `init` (alias: `task init`) manages `.gitignore` for state path (`ask` default, `yes`, `no`)
 - `task complete` does not create commits
 - `task complete` requires fully committed worktree and `DONE` task status
 - default merge strategy is `rebase-then-ff`; strict mode is `--merge-strategy ff-only`
