@@ -1,7 +1,6 @@
 # codex-teams
 
-![codex-teams](https://github.com/user-attachments/assets/f3addb72-077b-4515-b123-3f7d14352647)
-
+![codex-teams_0_1_1](https://github.com/user-attachments/assets/c2f8a3c5-880a-43b3-a363-4b8f76c53e11)
 
 <p align="center">
   Orchestrate multi-agent coding on git worktrees with explicit lifecycle and state.
