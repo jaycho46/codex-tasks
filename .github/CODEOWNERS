@@ -1,9 +1,9 @@
 # Default ownership for required reviews.
-* @jaycho
+* @jaycho46
 
 # Critical runtime and release surface.
-/scripts/lib/ @jaycho
-/scripts/py/ @jaycho
-/scripts/codex-teams @jaycho
-/.github/ @jaycho
-/tests/ @jaycho
+/scripts/lib/ @jaycho46
+/scripts/py/ @jaycho46
+/scripts/codex-teams @jaycho46
+/.github/ @jaycho46
+/tests/ @jaycho46

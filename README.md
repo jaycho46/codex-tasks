@@ -28,12 +28,14 @@ This repo ships an installable Codex skill.
 - skill manifest: `skills/.curated/codex-teams/SKILL.md`
 - installer path: `skills/.curated/codex-teams`
 
-Install with Codex skill installer (after pushing this repo to GitHub):
+Install with Codex skill installer:
 
-```bash
-python3 /Users/jaycho/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo <owner>/codex-teams \
-  --path skills/.curated/codex-teams
+In Codex, invoke `$skill-installer` with:
+
+```text
+$skill-installer Install skill from GitHub:
+- repo: jaycho46/codex-teams
+- path: skills/.curated/codex-teams
 ```
 
 After install, restart Codex to pick up the skill.
