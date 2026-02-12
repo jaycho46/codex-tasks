@@ -88,48 +88,16 @@ python3 -m pip install textual
 
 ## Install with curl
 
-Latest release (quick install):
+Quick install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/main/scripts/install-codex-teams.sh | bash
-```
-
-Specific version (recommended):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/v0.1.1/scripts/install-codex-teams.sh | bash -s -- --repo jaycho46/codex-teams --version v0.1.1
-```
-
-Specific version + signed manifest verification:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/v0.1.1/scripts/install-codex-teams.sh | bash -s -- --repo jaycho46/codex-teams --version v0.1.1 --verify-signature
 ```
 
 Default install paths:
 
 - payload: `~/.local/share/codex-teams/<version>/scripts`
 - launcher: `~/.local/bin/codex-teams`
-
-Installer verification behavior:
-
-- checksum verification is enabled by default (`SHA256SUMS`)
-- `--verify-signature` verifies `SHA256SUMS` with Sigstore cosign
-- signature verification requires `cosign` installed
-
-Manual signature verification example:
-
-```bash
-curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.1/SHA256SUMS
-curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.1/SHA256SUMS.sig
-curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.1/SHA256SUMS.pem
-cosign verify-blob \
-  --certificate SHA256SUMS.pem \
-  --signature SHA256SUMS.sig \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/jaycho46/codex-teams/\.github/workflows/release\.yml@.*$' \
-  SHA256SUMS
-```
 
 ## Entry point
 
@@ -325,42 +293,6 @@ bash tests/smoke/test_task_complete_commit_summary_fallback.sh
 bash tests/smoke/test_task_complete_auto_rebase_merge.sh
 bash tests/smoke/test_status_tui_fallback.sh
 ```
-
-## GitHub release automation
-
-This repository includes GitHub-native release automation:
-
-- `.github/workflows/ci.yml`: runs unit + smoke checks on `main` and PRs
-- `.github/workflows/release-drafter.yml`: maintains draft release notes
-- `.github/workflows/release.yml`: tag-driven release publishing with signed-tag verification and Sigstore signing
-
-Recommended branch protection on `main`:
-
-- require pull request reviews
-- require status checks (`Unit + Smoke`)
-- require CODEOWNERS review for runtime/release paths
-
-Required repository secret:
-
-- `RELEASE_GPG_PUBLIC_KEY`: armored public key used to verify signed release tags in CI
-
-Release flow:
-
-```bash
-git checkout main
-git pull --ff-only origin main
-bash scripts/run_ci_tests.sh
-git tag -s v0.1.1 -m "v0.1.1"
-git push origin v0.1.1
-```
-
-After tag push, `release` will:
-
-1. rerun full tests on tag commit
-2. verify GPG-signed tag using `RELEASE_GPG_PUBLIC_KEY`
-3. create/update GitHub Release with generated notes
-4. attach `install-codex-teams.sh`, `SHA256SUMS`, `SHA256SUMS.sig`, `SHA256SUMS.pem` assets
-5. publish install and verification commands in release body
 
 ## License
 
