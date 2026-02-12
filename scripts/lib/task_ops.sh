@@ -1257,6 +1257,32 @@ for token in shlex.split(raw):
 PY
 }
 
+resolve_worker_codex_teams_bin() {
+  local worktree_path="${1:-}"
+  local primary_repo primary_team_bin
+
+  primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
+  if [[ -n "$primary_repo" ]]; then
+    primary_team_bin="$primary_repo/scripts/codex-teams"
+    if [[ -x "$primary_team_bin" ]]; then
+      echo "$primary_team_bin"
+      return 0
+    fi
+  fi
+
+  if [[ -x "$TEAM_BIN" ]]; then
+    echo "$TEAM_BIN"
+    return 0
+  fi
+
+  if command -v codex-teams >/dev/null 2>&1; then
+    command -v codex-teams
+    return 0
+  fi
+
+  return 1
+}
+
 spawn_detached_process() {
   local log_file="${1:-}"
   shift || true
@@ -1298,7 +1324,7 @@ build_codex_worker_prompt() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
-  local rules_file rendered_rules
+  local rules_file rendered_rules worker_cli_bin worker_cli_cmd
 
   if [[ -n "${SCRIPT_DIR:-}" ]]; then
     rules_file="$SCRIPT_DIR/prompts/codex-worker-rules.md"
@@ -1309,7 +1335,14 @@ build_codex_worker_prompt() {
   fi
   [[ -f "$rules_file" ]] || die "Missing codex worker rules file: $rules_file"
 
+  worker_cli_bin="$(resolve_worker_codex_teams_bin "$worktree_path" || true)"
+  if [[ -z "$worker_cli_bin" ]]; then
+    worker_cli_bin="codex-teams"
+  fi
+  worker_cli_cmd="$(printf '%q' "$worker_cli_bin")"
+
   rendered_rules="$(cat "$rules_file")"
+  rendered_rules="${rendered_rules//__CODEX_TEAMS_CMD__/$worker_cli_cmd}"
   rendered_rules="${rendered_rules//__WORKTREE_PATH__/$worktree_path}"
   rendered_rules="${rendered_rules//__STATE_DIR__/$STATE_DIR}"
   rendered_rules="${rendered_rules//__AGENT__/$agent}"

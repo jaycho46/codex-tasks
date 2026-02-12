@@ -33,17 +33,23 @@ Install with Codex skill installer (after pushing this repo to GitHub):
 
 ```bash
 python3 /Users/jaycho/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo <owner>/codex-teams-cli \
+  --repo <owner>/codex-teams \
   --path skills/.curated/codex-teams
 ```
 
 After install, restart Codex to pick up the skill.
 
+If `codex-teams` is not on PATH yet, bootstrap it with the canonical installer:
+
+```bash
+REPO="${CODEX_TEAMS_REPO:-jaycho46/codex-teams}"; curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/scripts/install-codex-teams.sh" | bash -s -- --repo "$REPO" --version "${CODEX_TEAMS_VERSION:-latest}" --force
+```
+
 Use it as the default workflow:
 
 1. In Codex task prompts, include `$codex-teams` to apply guardrails.
-2. For scheduled runs, start tasks with `scripts/codex-teams run start`.
-3. Monitor and control execution with `scripts/codex-teams` (TUI).
+2. For scheduled runs, start tasks with `codex-teams run start`.
+3. Monitor and control execution with `codex-teams` (TUI).
 
 ## Why codex-teams
 
@@ -59,13 +65,13 @@ This is designed to reduce common multi-agent failure modes: duplicate starts, o
 
 ```bash
 # 1) Initialize task domain and state hygiene
-scripts/codex-teams task init
+codex-teams task init
 
 # 2) Start ready tasks from TODO.md
-scripts/codex-teams run start
+codex-teams run start
 
 # 3) Open live dashboard (default command = status --tui)
-scripts/codex-teams
+codex-teams
 ```
 
 Interactive TUI requires:
@@ -74,10 +80,55 @@ Interactive TUI requires:
 python3 -m pip install textual
 ```
 
+## Install with curl
+
+Latest release (quick install):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/main/scripts/install-codex-teams.sh | bash
+```
+
+Specific version (recommended):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/v0.1.0/scripts/install-codex-teams.sh | bash -s -- --repo jaycho46/codex-teams --version v0.1.0
+```
+
+Specific version + signed manifest verification:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaycho46/codex-teams/v0.1.0/scripts/install-codex-teams.sh | bash -s -- --repo jaycho46/codex-teams --version v0.1.0 --verify-signature
+```
+
+Default install paths:
+
+- payload: `~/.local/share/codex-teams/<version>/scripts`
+- launcher: `~/.local/bin/codex-teams`
+
+Installer verification behavior:
+
+- checksum verification is enabled by default (`SHA256SUMS`)
+- `--verify-signature` verifies `SHA256SUMS` with Sigstore cosign
+- signature verification requires `cosign` installed
+
+Manual signature verification example:
+
+```bash
+curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.0/SHA256SUMS
+curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.0/SHA256SUMS.sig
+curl -fsSLO https://github.com/jaycho46/codex-teams/releases/download/v0.1.0/SHA256SUMS.pem
+cosign verify-blob \
+  --certificate SHA256SUMS.pem \
+  --signature SHA256SUMS.sig \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/jaycho46/codex-teams/\.github/workflows/release\.yml@.*$' \
+  SHA256SUMS
+```
+
 ## Entry point
 
 ```bash
-scripts/codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] <command>
+codex-teams [--repo <path>] [--state-dir <path>] [--config <path>] <command>
 ```
 
 No command defaults to the interactive dashboard (`status --tui`).
@@ -99,9 +150,9 @@ flowchart LR
 ### Status and dashboard
 
 ```bash
-scripts/codex-teams
-scripts/codex-teams dashboard [--trigger <label>] [--max-start <n>]
-scripts/codex-teams status [--json|--tui] [--trigger <label>] [--max-start <n>]
+codex-teams
+codex-teams dashboard [--trigger <label>] [--max-start <n>]
+codex-teams status [--json|--tui] [--trigger <label>] [--max-start <n>]
 ```
 
 What you get:
@@ -115,16 +166,16 @@ What you get:
 ### Task domain
 
 ```bash
-scripts/codex-teams task init [--gitignore <ask|yes|no>]
-scripts/codex-teams task lock <agent> <scope> [task_id]
-scripts/codex-teams task unlock <agent> <scope>
-scripts/codex-teams task heartbeat <agent> <scope>
-scripts/codex-teams task update <agent> <task_id> <status> <summary>
-scripts/codex-teams task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
-scripts/codex-teams task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
-scripts/codex-teams task cleanup-stale [--apply]
-scripts/codex-teams task emergency-stop [--reason <text>] [--yes]
-scripts/codex-teams emergency-stop [--reason <text>] [--yes]
+codex-teams task init [--gitignore <ask|yes|no>]
+codex-teams task lock <agent> <scope> [task_id]
+codex-teams task unlock <agent> <scope>
+codex-teams task heartbeat <agent> <scope>
+codex-teams task update <agent> <task_id> <status> <summary>
+codex-teams task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
+codex-teams task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
+codex-teams task cleanup-stale [--apply]
+codex-teams task emergency-stop [--reason <text>] [--yes]
+codex-teams emergency-stop [--reason <text>] [--yes]
 ```
 
 Behavior notes:
@@ -145,15 +196,15 @@ Commit message contract (task worktree):
 ### Worktree domain
 
 ```bash
-scripts/codex-teams worktree create <agent> <task_id> [base_branch] [parent_dir]
-scripts/codex-teams worktree start <agent> <scope> <task_id> [base_branch] [parent_dir] [summary]
-scripts/codex-teams worktree list
+codex-teams worktree create <agent> <task_id> [base_branch] [parent_dir]
+codex-teams worktree start <agent> <scope> <task_id> [base_branch] [parent_dir] [summary]
+codex-teams worktree list
 ```
 
 ### Scheduler domain
 
 ```bash
-scripts/codex-teams run start [--dry-run] [--no-launch] [--trigger <label>] [--max-start <n>]
+codex-teams run start [--dry-run] [--no-launch] [--trigger <label>] [--max-start <n>]
 ```
 
 Runtime behavior:
@@ -196,9 +247,15 @@ Legacy commands intentionally removed:
 - `ops ...`
 - `run status`
 
-Use `scripts/codex-teams status` and `scripts/codex-teams task ...` instead.
+Use `codex-teams status` and `codex-teams task ...` instead.
 
 ## Tests
+
+```bash
+bash scripts/run_ci_tests.sh
+```
+
+CI expands that command into:
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -215,6 +272,42 @@ bash tests/smoke/test_task_complete_commit_summary_fallback.sh
 bash tests/smoke/test_task_complete_auto_rebase_merge.sh
 bash tests/smoke/test_status_tui_fallback.sh
 ```
+
+## GitHub release automation
+
+This repository includes GitHub-native release automation:
+
+- `.github/workflows/ci.yml`: runs unit + smoke checks on `main` and PRs
+- `.github/workflows/release-drafter.yml`: maintains draft release notes
+- `.github/workflows/release.yml`: tag-driven release publishing with signed-tag verification and Sigstore signing
+
+Recommended branch protection on `main`:
+
+- require pull request reviews
+- require status checks (`Unit + Smoke`)
+- require CODEOWNERS review for runtime/release paths
+
+Required repository secret:
+
+- `RELEASE_GPG_PUBLIC_KEY`: armored public key used to verify signed release tags in CI
+
+Release flow:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+bash scripts/run_ci_tests.sh
+git tag -s v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+After tag push, `release` will:
+
+1. rerun full tests on tag commit
+2. verify GPG-signed tag using `RELEASE_GPG_PUBLIC_KEY`
+3. create/update GitHub Release with generated notes
+4. attach `install-codex-teams.sh`, `SHA256SUMS`, `SHA256SUMS.sig`, `SHA256SUMS.pem` assets
+5. publish install and verification commands in release body
 
 ## License
 

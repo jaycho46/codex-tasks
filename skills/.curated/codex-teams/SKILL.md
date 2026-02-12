@@ -7,6 +7,18 @@ description: Guardrails for codex-teams worker execution. Use when completing TO
 
 Apply this skill for tasks executed by `codex-teams run start` workers.
 
+## CLI Bootstrap
+
+Before running any workflow command, ensure the `codex-teams` CLI is installed:
+
+1. Check availability:
+   - `command -v codex-teams >/dev/null 2>&1`
+2. If missing, install via the canonical installer:
+   - `REPO="${CODEX_TEAMS_REPO:-jaycho46/codex-teams}"; curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/scripts/install-codex-teams.sh" | bash -s -- --repo "$REPO" --version "${CODEX_TEAMS_VERSION:-latest}" --force`
+3. If still not found because of PATH:
+   - `export PATH="${XDG_BIN_HOME:-$HOME/.local/bin}:$PATH"`
+4. If network or write sandbox blocks install, request escalation and rerun the installer command.
+
 ## Hard Rules
 
 1. Lifecycle contract: tasks start via `codex-teams run start` and end via `codex-teams task complete`.
@@ -20,20 +32,21 @@ Apply this skill for tasks executed by `codex-teams run start` workers.
 
 ## Required Workflow
 
-1. Start progress tracking:
-   - `scripts/codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" IN_PROGRESS "<specific progress>"`
-2. Implement task deliverables in repository files (not only TODO/status metadata).
-3. Verify changed files include deliverables:
+1. Ensure `codex-teams` command is available (run CLI bootstrap above if needed).
+2. Start progress tracking:
+   - `codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" IN_PROGRESS "<specific progress>"`
+3. Implement task deliverables in repository files (not only TODO/status metadata).
+4. Verify changed files include deliverables:
    - `git status --short`
-4. Commit message rules:
+5. Commit message rules:
    - Deliverable commits: `<type>: <summary> (<task_id>)` where `<type>` is one of `feat|fix|refactor|docs|test|chore`
    - Final DONE marker commit: `chore: mark <task_id> done`
-5. After final verification, mark task DONE with a specific summary:
-   - `scripts/codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" DONE "<what was delivered>"`
-6. Commit everything for the task:
+6. After final verification, mark task DONE with a specific summary:
+   - `codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" DONE "<what was delivered>"`
+7. Commit everything for the task:
    - `git add -A && git commit -m "chore: mark <task_id> done"`
-7. As the final command, use task complete for merge and worktree cleanup (or omit summary to use the default completion log text):
-   - `scripts/codex-teams --repo "<worktree>" --state-dir "<state_dir>" task complete "<agent>" "<scope>" "<task_id>" --summary "<what was delivered>"`
+8. As the final command, use task complete for merge and worktree cleanup (or omit summary to use the default completion log text):
+   - `codex-teams --repo "<worktree>" --state-dir "<state_dir>" task complete "<agent>" "<scope>" "<task_id>" --summary "<what was delivered>"`
 
 ## Merge Failure Handling
 
@@ -41,5 +54,5 @@ Apply this skill for tasks executed by `codex-teams run start` workers.
 - If merge/rebase conflicts occur, resolve conflicts in the worktree as much as possible and run `task complete` again.
 - If it still fails after reasonable resolution attempts, do not force status changes.
 - Log blocker:
-  - `scripts/codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" BLOCKED "merge conflict: <reason>"`
+  - `codex-teams --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" BLOCKED "merge conflict: <reason>"`
 - Leave task for manual resolution.
