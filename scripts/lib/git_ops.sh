@@ -54,6 +54,63 @@ find_worktree_for_branch() {
   return 1
 }
 
+find_branch_for_worktree_path() {
+  local repo_root="${1:-}"
+  local target_path="${2:-}"
+  local line current_path current_branch
+
+  while IFS= read -r line; do
+    case "$line" in
+      worktree\ *)
+        current_path="${line#worktree }"
+        ;;
+      branch\ refs/heads/*)
+        current_branch="${line#branch refs/heads/}"
+        if [[ "$current_path" == "$target_path" ]]; then
+          echo "$current_branch"
+          return 0
+        fi
+        ;;
+      detached)
+        if [[ "$current_path" == "$target_path" ]]; then
+          echo "DETACHED"
+          return 0
+        fi
+        ;;
+    esac
+  done < <(git -C "$repo_root" worktree list --porcelain)
+
+  return 1
+}
+
+quarantine_orphan_worktree_path() {
+  local repo_root="${1:-}"
+  local worktree_path="${2:-}"
+  local expected_branch="${3:-}"
+  [[ -e "$worktree_path" ]] || return 0
+
+  local attached_branch
+  attached_branch="$(find_branch_for_worktree_path "$repo_root" "$worktree_path" || true)"
+  if [[ -n "$attached_branch" ]]; then
+    die "Worktree path already exists and is attached to $attached_branch (expected $expected_branch): $worktree_path"
+  fi
+
+  local timestamp quarantine_path attempt
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  quarantine_path="${worktree_path}.orphan-${timestamp}"
+  attempt=0
+  while [[ -e "$quarantine_path" ]]; do
+    attempt=$((attempt + 1))
+    quarantine_path="${worktree_path}.orphan-${timestamp}-${attempt}"
+  done
+
+  if ! mv "$worktree_path" "$quarantine_path"; then
+    die "Failed to quarantine stale worktree path: $worktree_path"
+  fi
+
+  echo "[WARN] quarantined stale worktree path: $worktree_path -> $quarantine_path" >&2
+}
+
 ensure_agent_worktree() {
   local repo_root="${1:-}"
   local repo_name="${2:-}"
@@ -75,7 +132,7 @@ ensure_agent_worktree() {
   fi
 
   if [[ -e "$worktree_path" ]]; then
-    die "Worktree path already exists but is not attached to $branch_name: $worktree_path"
+    quarantine_orphan_worktree_path "$repo_root" "$worktree_path" "$branch_name"
   fi
 
   if git -C "$repo_root" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
