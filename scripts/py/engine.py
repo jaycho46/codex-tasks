@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from config import ConfigError, load_config, owner_key, resolve_context
+from session_parser import parse_session_markdown, read_tail_text
 from state_model import (
     classify_records,
     is_active_state,
@@ -588,7 +589,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         from rich.console import Group
         from rich.text import Text
         from textual.app import App, ComposeResult
-        from textual.containers import Grid, Container, Horizontal
+        from textual.containers import ContentSwitcher, Grid, Container, Horizontal
         from textual.screen import ModalScreen
         from textual.widgets import Button, DataTable, Static, TabbedContent, TabPane
     except ModuleNotFoundError:
@@ -758,7 +759,12 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             padding: 1 1;
         }
 
-        #agent_session_body {
+        #agent_session_switcher {
+            height: 1fr;
+        }
+
+        #agent_session_body_raw,
+        #agent_session_body_markdown {
             height: 1fr;
             overflow-y: auto;
             color: #dce9ff;
@@ -788,6 +794,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ("escape", "close_modal", "Close"),
             ("q", "close_modal", "Close"),
             ("enter", "close_modal", "Close"),
+            ("tab", "toggle_view", "Toggle View"),
         ]
 
         def __init__(self, worker: dict[str, Any]) -> None:
@@ -799,41 +806,90 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.launch_backend = str(worker.get("launch_backend") or "").strip().lower()
             self.tmux_session = str(worker.get("tmux_session") or "").strip()
             self.log_file = str(worker.get("log_file") or "").strip()
+            self.view_mode = "parsed"
+            self.last_parse_source = "transcript"
+            self.last_parsed_events = 0
 
-        def compose(self) -> ComposeResult:
+        def _build_meta_text(self) -> str:
             backend_display = self.launch_backend or "N/A"
             session_display = self.tmux_session or "N/A"
             log_display = self.log_file or "N/A"
-            meta_text = (
+            view_display = "Parsed Markdown" if self.view_mode == "parsed" else "Raw ANSI"
+            parser_display = f"{self.last_parse_source} ({self.last_parsed_events} events)"
+            return (
                 f"Agent: {self.owner}\n"
                 f"Task: {self.task_id}\n"
                 f"PID: {self.pid}\n"
                 f"Backend: {backend_display}\n"
                 f"Session: {session_display}\n"
-                f"Log: {log_display}"
+                f"Log: {log_display}\n"
+                f"View: {view_display} (Tab)\n"
+                f"Parser: {parser_display}"
             )
+
+        def compose(self) -> ComposeResult:
             with Container(id="agent_session_center"):
                 with Container(id="agent_session_dialog"):
-                    yield Static(Text("Loading session output..."), id="agent_session_body")
+                    with ContentSwitcher(initial="agent_session_body_markdown", id="agent_session_switcher"):
+                        if Markdown is not None:
+                            yield Markdown("Loading session output...", id="agent_session_body_markdown")
+                        else:
+                            yield Static(Text("Loading session output..."), id="agent_session_body_markdown")
+                        yield Static(Text("Loading session output..."), id="agent_session_body_raw")
                     with Horizontal(id="agent_session_footer"):
-                        yield Static(Text(meta_text, style="bold #dce9ff"), id="agent_session_meta")
+                        yield Static(Text(self._build_meta_text(), style="bold #dce9ff"), id="agent_session_meta")
                         yield Button("Close (Enter/Esc)", id="close")
 
         def on_mount(self) -> None:
             self._refresh_body()
             self.set_interval(1.0, self._refresh_body)
 
-        def _refresh_body(self) -> None:
-            body_widget = self.query_one("#agent_session_body", Static)
+        def _set_meta(self) -> None:
+            meta_widget = self.query_one("#agent_session_meta", Static)
+            meta_widget.update(Text(self._build_meta_text(), style="bold #dce9ff"))
 
+        def _set_message(self, message: str, style: str = "yellow") -> None:
+            markdown_message = f"```text\n{message}\n```"
+
+            markdown_widget = self.query_one("#agent_session_body_markdown")
+            if Markdown is not None and isinstance(markdown_widget, Markdown):
+                markdown_widget.update(markdown_message)
+            else:
+                markdown_widget.update(Text(message, style=style))
+
+            raw_widget = self.query_one("#agent_session_body_raw", Static)
+            raw_widget.update(Text(message, style=style))
+
+            switcher = self.query_one("#agent_session_switcher", ContentSwitcher)
+            switcher.current = "agent_session_body_markdown" if self.view_mode == "parsed" else "agent_session_body_raw"
+
+        def _set_parsed_body(self, markdown_body: str) -> None:
+            markdown_widget = self.query_one("#agent_session_body_markdown")
+            if Markdown is not None and isinstance(markdown_widget, Markdown):
+                markdown_widget.update(markdown_body)
+            else:
+                markdown_widget.update(Text(markdown_body))
+
+            switcher = self.query_one("#agent_session_switcher", ContentSwitcher)
+            switcher.current = "agent_session_body_markdown"
+
+        def _set_raw_body(self, content: str) -> None:
+            raw_widget = self.query_one("#agent_session_body_raw", Static)
+            raw_widget.update(Text.from_ansi(content))
+
+            switcher = self.query_one("#agent_session_switcher", ContentSwitcher)
+            switcher.current = "agent_session_body_raw"
+
+        def _refresh_body(self) -> None:
             if self.launch_backend != "tmux" or not self.tmux_session or self.tmux_session == "N/A":
-                body_widget.update(
-                    Text(
-                        "Legacy session is not supported in overlay.\n"
-                        "This worker is not running with tmux backend.",
-                        style="yellow",
-                    )
+                self.last_parse_source = "legacy"
+                self.last_parsed_events = 0
+                self._set_message(
+                    "Legacy session is not supported in overlay.\n"
+                    "This worker is not running with tmux backend.",
+                    style="yellow",
                 )
+                self._set_meta()
                 return
 
             has_session = subprocess.run(
@@ -842,12 +898,10 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 text=True,
             )
             if has_session.returncode != 0:
-                body_widget.update(
-                    Text(
-                        f"tmux session is not available: {self.tmux_session}",
-                        style="yellow",
-                    )
-                )
+                self.last_parse_source = "tmux"
+                self.last_parsed_events = 0
+                self._set_message(f"tmux session is not available: {self.tmux_session}", style="yellow")
+                self._set_meta()
                 return
 
             capture = subprocess.run(
@@ -857,18 +911,33 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             )
             if capture.returncode != 0:
                 detail = capture.stderr.strip() or capture.stdout.strip() or "unknown error"
-                body_widget.update(
-                    Text(
-                        f"Failed to capture tmux pane: {detail}",
-                        style="red",
-                    )
-                )
+                self.last_parse_source = "tmux"
+                self.last_parsed_events = 0
+                self._set_message(f"Failed to capture tmux pane: {detail}", style="red")
+                self._set_meta()
                 return
 
             content = capture.stdout.replace("\r", "").rstrip("\n")
             if not content.strip():
                 content = "(No output yet)"
-            body_widget.update(Text.from_ansi(content))
+
+            self._set_raw_body(content)
+            if self.view_mode == "raw":
+                self.last_parse_source = "ansi"
+                self.last_parsed_events = 0
+                self._set_meta()
+                return
+
+            log_tail = read_tail_text(self.log_file) if self.log_file and self.log_file != "N/A" else ""
+            parsed = parse_session_markdown(content, log_tail=log_tail)
+            self.last_parse_source = parsed.source
+            self.last_parsed_events = parsed.parsed_events
+            self._set_parsed_body(parsed.markdown)
+            self._set_meta()
+
+        def action_toggle_view(self) -> None:
+            self.view_mode = "raw" if self.view_mode == "parsed" else "parsed"
+            self._refresh_body()
 
         def action_close_modal(self) -> None:
             self.dismiss(None)
@@ -1309,7 +1378,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 Text("COMMANDS", style="bold"),
                 Text("  Ctrl+R   Run start"),
                 Text("  Ctrl+E   Emergency stop"),
-                Text("  Enter/Click on Running Agents: Session overlay"),
+                Text("  Enter/Click on Running Agents: Session overlay (Tab: Raw/Markdown)"),
             ]
             if self.last_error:
                 palette_lines.extend(
