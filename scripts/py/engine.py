@@ -597,9 +597,12 @@ def _render_status_text(payload: dict[str, Any]) -> str:
 def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -> None:
     try:
         from rich.console import Group
+        from rich.markdown import Markdown as RichMarkdown
+        from rich.padding import Padding
+        from rich.syntax import Syntax
         from rich.text import Text
         from textual.app import App, ComposeResult
-        from textual.containers import Grid, Container, Horizontal
+        from textual.containers import Grid, Container, Horizontal, VerticalScroll
         from textual.screen import ModalScreen
         from textual.widgets import Button, DataTable, Static, TabbedContent, TabPane
     except ModuleNotFoundError:
@@ -773,17 +776,22 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             height: 1fr;
         }
 
-        #agent_session_body_raw,
-        #agent_session_body_structured {
+        #agent_session_body_raw_wrap,
+        #agent_session_body_structured_wrap {
             height: 1fr;
             overflow-y: auto;
-            color: #dce9ff;
-            border: round #d8bf7c;
+            border: round #5a6573;
             padding: 0 1;
         }
 
-        #agent_session_body_raw.hidden,
-        #agent_session_body_structured.hidden {
+        #agent_session_body_raw,
+        #agent_session_body_structured {
+            height: auto;
+            color: #dce9ff;
+        }
+
+        #agent_session_body_raw_wrap.hidden,
+        #agent_session_body_structured_wrap.hidden {
             display: none;
         }
 
@@ -810,6 +818,12 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ("q", "close_modal", "Close"),
             ("enter", "close_modal", "Close"),
             ("tab", "toggle_view", "Toggle View"),
+            ("up", "scroll_up", "Scroll Up"),
+            ("down", "scroll_down", "Scroll Down"),
+            ("pageup", "scroll_page_up", "Page Up"),
+            ("pagedown", "scroll_page_down", "Page Down"),
+            ("home", "scroll_top", "Top"),
+            ("end", "scroll_bottom", "Bottom"),
         ]
 
         def __init__(self, worker: dict[str, Any]) -> None:
@@ -824,95 +838,329 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.view_mode = "structured"
             self.last_parse_source = "transcript"
             self.last_parsed_events = 0
+            self.spinner_tick = 0
 
         def _build_meta_text(self) -> str:
             backend_display = self.launch_backend or "N/A"
             session_display = self.tmux_session or "N/A"
             log_display = self.log_file or "N/A"
-            view_display = "Structured" if self.view_mode == "structured" else "Raw ANSI"
-            parser_display = f"{self.last_parse_source} ({self.last_parsed_events} events)"
             return (
                 f"Agent: {self.owner}\n"
                 f"Task: {self.task_id}\n"
                 f"PID: {self.pid}\n"
                 f"Backend: {backend_display}\n"
                 f"Session: {session_display}\n"
-                f"Log: {log_display}\n"
-                f"View: {view_display} (Tab)\n"
-                f"Parser: {parser_display}"
+                f"Log: {log_display}"
             )
 
         def compose(self) -> ComposeResult:
             with Container(id="agent_session_center"):
                 with Container(id="agent_session_dialog"):
                     with Container(id="agent_session_body_stack"):
-                        yield Static(Text("Loading session output..."), id="agent_session_body_structured")
-                        yield Static(Text("Loading session output..."), id="agent_session_body_raw", classes="hidden")
+                        with VerticalScroll(id="agent_session_body_structured_wrap"):
+                            yield Static(Text("Loading session output..."), id="agent_session_body_structured")
+                        with VerticalScroll(id="agent_session_body_raw_wrap", classes="hidden"):
+                            yield Static(Text("Loading session output..."), id="agent_session_body_raw")
                     with Horizontal(id="agent_session_footer"):
                         yield Static(Text(self._build_meta_text(), style="bold #dce9ff"), id="agent_session_meta")
                         yield Button("Close (Enter/Esc)", id="close")
 
         def on_mount(self) -> None:
             self._refresh_body()
-            self.set_interval(1.0, self._refresh_body)
+            self.set_interval(0.33, self._refresh_body)
+            self._focus_active_scroll()
 
         def _set_meta(self) -> None:
             meta_widget = self.query_one("#agent_session_meta", Static)
             meta_widget.update(Text(self._build_meta_text(), style="bold #dce9ff"))
 
         @staticmethod
-        def _block_style(kind: str) -> tuple[str, str]:
-            palette = {
-                "chat_codex": ("#7de3a3", "Codex"),
-                "chat_agent": ("#7ab7ff", "Agent"),
-                "think": ("#f2c572", "Think"),
-                "code": ("#e8bf7a", "Code"),
-                "tool_call": ("#7ab7ff", "Tool Call"),
-                "tool_result": ("#e8bf7a", "Tool Result"),
-                "status": ("#9fa8b2", "Status"),
-                "error": ("#ff7d7d", "Error"),
-                "terminal": ("#d8bf7c", "Terminal"),
-                "event": ("#8fc4ff", "Event"),
-            }
-            return palette.get(kind, ("#8fc4ff", "Event"))
+        def _block_style(block: SessionBlock) -> dict[str, Any]:
+            kind = (block.kind or "").strip().lower()
+            item_type = (block.item_type or "").strip().lower()
+            role = (block.role or "").strip().lower()
 
-        def _render_structured_block(self, block: SessionBlock) -> Group:
-            color, fallback_label = self._block_style(block.kind)
+            style: dict[str, Any] = {
+                "title": "#8ca0ba",
+                "body": "#dde5ee",
+                "label": "assistant",
+                "inline": False,
+            }
+
+            if kind == "code" or item_type == "code":
+                style.update(
+                    {
+                        "title": "#b3916c",
+                        "body": "#e6ddd3",
+                        "label": "code",
+                    }
+                )
+                return style
+
+            if (
+                kind == "tool_call"
+                or item_type.endswith("_call")
+                or item_type in {"function_call", "tool_call", "web_search_call", "computer_call", "mcp_call", "command_execution"}
+            ):
+                if item_type in {"command_execution", "command", "shell_command"}:
+                    style.update(
+                        {
+                            "title": "#b39a62",
+                            "body": "#e8dec7",
+                            "label": "shell",
+                        }
+                    )
+                else:
+                    style.update(
+                        {
+                            "title": "#6fa9bd",
+                            "body": "#d7e7ef",
+                            "label": "shell",
+                        }
+                    )
+                return style
+
+            if kind == "tool_result" or item_type.endswith("_output") or item_type in {"function_call_output", "tool_result"}:
+                style.update(
+                    {
+                        "title": "#6fb7a0",
+                        "body": "#d8ebe3",
+                        "label": "output",
+                    }
+                )
+                return style
+
+            if kind == "think" or item_type in {"reasoning", "analysis", "thinking", "thought"}:
+                style.update(
+                    {
+                        "title": "#79a887",
+                        "body": "#cfe0d5",
+                        "label": "thinking",
+                        "inline": True,
+                    }
+                )
+                return style
+
+            if kind == "error" or item_type in {"error", "exception"}:
+                style.update(
+                    {
+                        "title": "#b57b7b",
+                        "body": "#e4cccc",
+                        "label": "error",
+                    }
+                )
+                return style
+
+            if kind == "status" or item_type == "status":
+                style.update(
+                    {
+                        "title": "#9087b5",
+                        "body": "#d7d4e3",
+                        "label": "status",
+                    }
+                )
+                return style
+
+            if (
+                kind == "chat_agent"
+                or role in {"user", "system"}
+                or item_type in {"input_text", "input_message", "input"}
+            ):
+                style.update(
+                    {
+                        "title": "#6f8fb7",
+                        "body": "#d4deea",
+                        "label": "agent",
+                    }
+                )
+                return style
+
+            if kind == "chat_codex" or role == "assistant" or item_type in {"output_text", "message"}:
+                style.update(
+                    {
+                        "title": "#7ea7cf",
+                        "body": "#dbe5f1",
+                        "label": "assistant",
+                    }
+                )
+                return style
+
+            if kind == "terminal" or item_type == "terminal":
+                style.update(
+                    {
+                        "title": "#7cae86",
+                        "body": "#d8e6da",
+                        "label": "terminal",
+                    }
+                )
+                return style
+
+            return style
+
+        @staticmethod
+        def _should_render_markdown(block: SessionBlock) -> bool:
+            kind = (block.kind or "").strip().lower()
+            item_type = (block.item_type or "").strip().lower()
+            if kind in {"code", "tool_call", "tool_result"}:
+                return False
+            if item_type in {"function_call", "function_call_output", "tool_call", "tool_result"}:
+                return False
+            return True
+
+        @staticmethod
+        def _code_language_from_block(block: SessionBlock) -> str:
+            label = (block.label or "").strip()
+            if "·" in label:
+                _, language = label.rsplit("·", 1)
+                language = language.strip().lower()
+                if language:
+                    return language
+            if ":" in label:
+                _, language = label.rsplit(":", 1)
+                language = language.strip().lower()
+                if language:
+                    return language
+            return "text"
+
+        def _command_prefix(self, block: SessionBlock) -> str:
+            kind = (block.kind or "").strip().lower()
+            item_type = (block.item_type or "").strip().lower()
+            if kind != "tool_call" or item_type not in {"command_execution", "command", "shell_command"}:
+                return ""
+
+            status = (block.item_status or "").strip().lower()
+            if status in {"completed", "done", "success"}:
+                return "● "
+            if status in {"failed", "error"}:
+                return "◌ "
+            return "○ "
+
+        @staticmethod
+        def _is_command_block(block: SessionBlock) -> bool:
+            kind = (block.kind or "").strip().lower()
+            item_type = (block.item_type or "").strip().lower()
+            return kind == "tool_call" and item_type in {"command_execution", "command", "shell_command"}
+
+        @staticmethod
+        def _is_command_running(block: SessionBlock) -> bool:
+            status = (block.item_status or "").strip().lower()
+            return status not in {"completed", "done", "success", "failed", "error"}
+
+        @staticmethod
+        def _header_label(text: str) -> str:
+            raw = (text or "").strip()
+            if not raw:
+                return ""
+            words = raw.split(" ")
+            capitalized: list[str] = []
+            for word in words:
+                if not word:
+                    capitalized.append(word)
+                    continue
+                capitalized.append(f"{word[:1].upper()}{word[1:]}")
+            return " ".join(capitalized)
+
+        def _render_structured_block(self, block: SessionBlock) -> Any:
+            style = self._block_style(block)
+            kind = (block.kind or "").strip().lower()
+            item_type = (block.item_type or "").strip().lower()
             header = Text()
-            header.append("● ", style=color)
-            header.append(block.label or fallback_label, style=f"bold {color}")
+            if self._is_command_block(block):
+                prefix = self._command_prefix(block)
+                if prefix:
+                    header.append(prefix, style=f"bold {style['title']}")
+            else:
+                header.append("● ", style=f"bold {style['title']}")
+            header.append(self._header_label(block.label or style["label"]), style=f"bold {style['title']}")
+            if self._is_command_block(block) and self._is_command_running(block):
+                header.append(" · Running", style="dim #5f6772")
             if block.timestamp:
                 header.append(f"  {block.timestamp}", style="dim")
 
-            lines: list[Text] = [header]
             body = (block.body or "").strip()
-            if block.kind == "code":
-                body_style = "#e8bf7a"
-            elif block.kind == "think":
-                body_style = "#f2c572"
-            elif block.kind == "status":
-                body_style = "#9fa8b2"
-            elif block.kind == "error":
-                body_style = "#ffb3b3"
+            if not body:
+                body_renderable: Any = Text("(no content)", style="dim")
+            elif kind == "code":
+                body_renderable = Syntax(
+                    body,
+                    self._code_language_from_block(block),
+                    theme="ansi_dark",
+                    line_numbers=False,
+                    word_wrap=True,
+                    background_color="default",
+                )
+            elif kind == "tool_call":
+                if item_type in {"command_execution", "command", "shell_command"}:
+                    body_renderable = Text(body, style=f"dim {style['body']}")
+                else:
+                    body_renderable = Syntax(
+                        body,
+                        "bash",
+                        theme="ansi_dark",
+                        line_numbers=False,
+                        word_wrap=True,
+                        background_color="default",
+                    )
+            elif kind in {"tool_result", "terminal"}:
+                body_renderable = Syntax(
+                    body,
+                    "text",
+                    theme="ansi_dark",
+                    line_numbers=False,
+                    word_wrap=True,
+                    background_color="default",
+                )
+            elif self._should_render_markdown(block):
+                body_renderable = RichMarkdown(body, hyperlinks=False, code_theme="ansi_dark")
             else:
-                body_style = "#dce9ff"
-            if body:
-                for line in body.splitlines():
-                    lines.append(Text(f"  {line}", style=body_style))
-            else:
-                lines.append(Text("  (no content)", style="dim"))
-            return Group(*lines)
+                body_renderable = Text(body, style=style["body"])
+
+            if style.get("inline"):
+                inline_lines: list[Text] = [header]
+                raw_inline = body or "(no content)"
+                inline_style = f"italic {style['body']}"
+                if kind == "think":
+                    inline_style = f"dim italic {style['body']}"
+                for line in raw_inline.splitlines() or ["(no content)"]:
+                    inline_lines.append(Text(f"  {line}", style=inline_style))
+                if kind == "think":
+                    inline_lines.append(Text(""))
+                return Group(*inline_lines)
+
+            return Group(
+                header,
+                Padding(body_renderable, (0, 0, 1, 2)),
+            )
 
         def _apply_view_mode(self) -> None:
-            structured_widget = self.query_one("#agent_session_body_structured", Static)
-            raw_widget = self.query_one("#agent_session_body_raw", Static)
+            structured_wrap = self.query_one("#agent_session_body_structured_wrap", VerticalScroll)
+            raw_wrap = self.query_one("#agent_session_body_raw_wrap", VerticalScroll)
 
             if self.view_mode == "structured":
-                structured_widget.remove_class("hidden")
-                raw_widget.add_class("hidden")
+                structured_wrap.remove_class("hidden")
+                raw_wrap.add_class("hidden")
             else:
-                structured_widget.add_class("hidden")
-                raw_widget.remove_class("hidden")
+                structured_wrap.add_class("hidden")
+                raw_wrap.remove_class("hidden")
+
+            self._focus_active_scroll()
+
+        def _active_scroll(self) -> VerticalScroll:
+            if self.view_mode == "structured":
+                return self.query_one("#agent_session_body_structured_wrap", VerticalScroll)
+            return self.query_one("#agent_session_body_raw_wrap", VerticalScroll)
+
+        def _focus_active_scroll(self) -> None:
+            try:
+                self._active_scroll().focus()
+            except Exception:
+                pass
+
+        def _scroll_to_latest(self) -> None:
+            try:
+                self._active_scroll().scroll_end(animate=False, force=True, immediate=True)
+            except Exception:
+                pass
 
         def _set_message(self, message: str, style: str = "yellow") -> None:
             structured_widget = self.query_one("#agent_session_body_structured", Static)
@@ -922,6 +1170,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             raw_widget.update(Text(message, style=style))
 
             self._apply_view_mode()
+            self._scroll_to_latest()
 
         def _set_structured_body(self, view: SessionView) -> None:
             structured_widget = self.query_one("#agent_session_body_structured", Static)
@@ -931,23 +1180,23 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 return
 
             renderables: list[Any] = []
-            total = len(view.blocks)
-            for idx, block in enumerate(view.blocks):
+            for block in view.blocks:
                 renderables.append(self._render_structured_block(block))
-                if idx < total - 1:
-                    renderables.append(Text("─" * 72, style="#42566f"))
 
             structured_widget.update(Group(*renderables))
 
             self._apply_view_mode()
+            self._scroll_to_latest()
 
         def _set_raw_body(self, content: str) -> None:
             raw_widget = self.query_one("#agent_session_body_raw", Static)
             raw_widget.update(Text.from_ansi(content))
 
             self._apply_view_mode()
+            self._scroll_to_latest()
 
         def _refresh_body(self) -> None:
+            self.spinner_tick += 1
             if self.launch_backend != "tmux" or not self.tmux_session or self.tmux_session == "N/A":
                 self.last_parse_source = "legacy"
                 self.last_parsed_events = 0
@@ -996,7 +1245,12 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 return
 
             log_tail = read_tail_text(self.log_file) if self.log_file and self.log_file != "N/A" else ""
-            structured = parse_session_structured(content, log_tail=log_tail)
+            structured = parse_session_structured(
+                content,
+                log_tail=log_tail,
+                max_blocks=220,
+                max_lines=1200,
+            )
             self.last_parse_source = structured.source
             self.last_parsed_events = structured.parsed_events
             self._set_structured_body(structured)
@@ -1005,6 +1259,24 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         def action_toggle_view(self) -> None:
             self.view_mode = "raw" if self.view_mode == "structured" else "structured"
             self._refresh_body()
+
+        def action_scroll_up(self) -> None:
+            self._active_scroll().scroll_relative(y=-3, animate=False)
+
+        def action_scroll_down(self) -> None:
+            self._active_scroll().scroll_relative(y=3, animate=False)
+
+        def action_scroll_page_up(self) -> None:
+            self._active_scroll().scroll_page_up(animate=False)
+
+        def action_scroll_page_down(self) -> None:
+            self._active_scroll().scroll_page_down(animate=False)
+
+        def action_scroll_top(self) -> None:
+            self._active_scroll().scroll_home(animate=False)
+
+        def action_scroll_bottom(self) -> None:
+            self._active_scroll().scroll_end(animate=False, force=True, immediate=True)
 
         def action_close_modal(self) -> None:
             self.dismiss(None)
