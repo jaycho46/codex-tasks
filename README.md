@@ -103,6 +103,9 @@ git commit -m "docs: add task plan and specs"
 codex-tasks
 ```
 
+<img width="1505" height="968" alt="Screenshot 2026-02-20 at 1 22 56 AM" src="https://github.com/user-attachments/assets/e6af4c78-fb13-4daa-ada8-69e3c28b3794" />
+
+
 Then press `Ctrl+R` in the dashboard to run scheduler start.
 
 Dashboard operations:
