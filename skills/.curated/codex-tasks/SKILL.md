@@ -30,6 +30,7 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 7. Commit all task changes (deliverables + TODO/status updates) before `codex-tasks task complete`, then use `task complete` as the last command for merge/worktree cleanup.
 8. If completion fails due to merge/rebase conflicts, try to resolve conflicts and re-run `task complete`; report `BLOCKED` only if it remains unresolved.
 9. For newly requested tasks, create them with `codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>` and fully populate the generated spec before scheduling.
+10. During planning, after writing or updating TODO items, always ask the user whether to create a commit; do not run `git commit` until the user explicitly confirms.
 
 ## Task Authoring (New Task)
 
@@ -46,7 +47,8 @@ When asked to create a new task, use this flow:
      - which tests or checks must run
      - exact command(s) to run
      - expected pass condition/output
-4. Only start scheduling after spec content is complete:
+4. After TODO/spec planning updates are written, ask the user if they want those planning changes committed; wait for explicit confirmation before any commit.
+5. Only start scheduling after spec content is complete:
    - `codex-tasks run start --dry-run`
 
 ## Required Workflow
