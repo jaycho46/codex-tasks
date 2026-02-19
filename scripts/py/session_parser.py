@@ -520,6 +520,57 @@ def _render_from_json_events(events: list[dict[str, Any]], max_blocks: int) -> l
     return blocks[-max_blocks:]
 
 
+def _normalize_cli_view_blocks(blocks: list[SessionBlock], max_blocks: int) -> list[SessionBlock]:
+    if not blocks:
+        return []
+
+    # Keep the high-level conversational surface and hide low-level transport noise.
+    allowed_kinds = {"chat_agent", "chat_codex", "think", "code", "error", "terminal"}
+    merged: list[SessionBlock] = []
+
+    for block in blocks:
+        if block.kind not in allowed_kinds:
+            continue
+        body = _normalize_fragment(block.body)
+        if not body:
+            continue
+
+        if (
+            merged
+            and merged[-1].kind == block.kind
+            and merged[-1].label == block.label
+        ):
+            merged[-1].body = _truncate(f"{merged[-1].body}\n\n{body}")
+            if not merged[-1].timestamp and block.timestamp:
+                merged[-1].timestamp = block.timestamp
+            continue
+
+        merged.append(
+            SessionBlock(
+                kind=block.kind,
+                label=block.label,
+                body=_truncate(body),
+                event_type="",
+                timestamp=block.timestamp,
+            )
+        )
+
+    if not merged:
+        # Fallback: if everything was filtered out, show the latest meaningful raw block.
+        tail = blocks[-1]
+        return [
+            SessionBlock(
+                kind="terminal",
+                label="Terminal",
+                body=_truncate(_normalize_fragment(tail.body) or "(No output yet)"),
+                event_type="",
+                timestamp=tail.timestamp,
+            )
+        ]
+
+    return merged[-max_blocks:]
+
+
 def _render_transcript(text: str, max_lines: int) -> str:
     cleaned = strip_ansi(text)
     lines = cleaned.splitlines()
@@ -545,9 +596,10 @@ def parse_session_structured(raw_capture: str, log_tail: str = "", max_blocks: i
     source_text = log_tail if log_tail.strip() else raw_capture
     events = _iter_json_objects(source_text)
     if events:
-        blocks = _render_from_json_events(events, max_blocks=max_blocks)
-        if blocks:
-            return SessionView(source="jsonl", parsed_events=len(events), blocks=blocks)
+        raw_blocks = _render_from_json_events(events, max_blocks=max(64, max_blocks * 4))
+        if raw_blocks:
+            cli_blocks = _normalize_cli_view_blocks(raw_blocks, max_blocks=max_blocks)
+            return SessionView(source="jsonl", parsed_events=len(events), blocks=cli_blocks)
 
     fallback = source_text if source_text.strip() else raw_capture
     fallback_body = _render_transcript(fallback, max_lines=max_lines)

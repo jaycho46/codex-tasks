@@ -49,6 +49,23 @@ class SessionParserTests(unittest.TestCase):
         self.assertIn("code", kinds)
         self.assertIn("chat_agent", kinds)
 
+    def test_parse_jsonl_merges_consecutive_chat_blocks_and_hides_event_noise(self) -> None:
+        log_tail = "\n".join(
+            [
+                '{"type":"response.output_text.delta","delta":"Hello"}',
+                '{"type":"response.output_text.delta","delta":" world"}',
+                '{"type":"response.status","status":"running"}',
+                '{"type":"response.output_text.delta","delta":"\\nMore"}',
+            ]
+        )
+
+        parsed = parse_session_structured("", log_tail=log_tail, max_blocks=8)
+        self.assertEqual(parsed.source, "jsonl")
+        # Should be one merged codex chat block, not separate event/status rows.
+        self.assertEqual([b.kind for b in parsed.blocks], ["chat_codex"])
+        self.assertIn("Hello world", parsed.blocks[0].body)
+        self.assertIn("More", parsed.blocks[0].body)
+
     def test_parse_transcript_fallback_wraps_clean_text(self) -> None:
         raw_capture = "\x1b[32mRunning step\x1b[0m\r\nNext line\r\n"
 

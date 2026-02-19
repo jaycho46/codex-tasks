@@ -883,8 +883,6 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             header.append(block.label or fallback_label, style=f"bold {color}")
             if block.timestamp:
                 header.append(f"  {block.timestamp}", style="dim")
-            if block.event_type:
-                header.append(f"  [{block.event_type}]", style="#4d6f99")
 
             lines: list[Text] = [header]
             body = (block.body or "").strip()
