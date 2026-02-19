@@ -117,6 +117,7 @@ grep -Fx -- "$PRIMARY_REPO" "$FAKE_ARGS" >/dev/null
 grep -Fx -- "--dangerously-bypass-approvals-and-sandbox" "$FAKE_ARGS" >/dev/null
 grep -Fx -- "--color" "$FAKE_ARGS" >/dev/null
 grep -Fx -- "always" "$FAKE_ARGS" >/dev/null
+grep -Fx -- "--json" "$FAKE_ARGS" >/dev/null
 if grep -Fx -- "--full-auto" "$FAKE_ARGS" >/dev/null; then
   echo "unexpected --full-auto in launched command"
   exit 1

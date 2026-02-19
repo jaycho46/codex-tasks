@@ -1831,6 +1831,18 @@ has_codex_color_flag() {
   return 1
 }
 
+has_codex_json_flag() {
+  local flag
+  for flag in "$@"; do
+    case "$flag" in
+      --json)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
 spawn_exit_cleanup_watcher() {
   local task_id="${1:-}"
   local expected_pid="${2:-}"
@@ -1929,6 +1941,9 @@ launch_codex_tmux_worker() {
   fi
   if ! has_codex_color_flag "${codex_flags[@]}"; then
     codex_flags+=(--color always)
+  fi
+  if ! has_codex_json_flag "${codex_flags[@]}"; then
+    codex_flags+=(--json)
   fi
 
   prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"

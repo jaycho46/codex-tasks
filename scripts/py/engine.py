@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from config import ConfigError, load_config, owner_key, resolve_context
-from session_parser import parse_session_markdown, read_tail_text
+from session_parser import SessionBlock, SessionView, parse_session_structured, read_tail_text
 from state_model import (
     classify_records,
     is_active_state,
@@ -774,7 +774,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         }
 
         #agent_session_body_raw,
-        #agent_session_body_markdown {
+        #agent_session_body_structured {
             height: 1fr;
             overflow-y: auto;
             color: #dce9ff;
@@ -783,7 +783,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         }
 
         #agent_session_body_raw.hidden,
-        #agent_session_body_markdown.hidden {
+        #agent_session_body_structured.hidden {
             display: none;
         }
 
@@ -821,7 +821,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.launch_backend = str(worker.get("launch_backend") or "").strip().lower()
             self.tmux_session = str(worker.get("tmux_session") or "").strip()
             self.log_file = str(worker.get("log_file") or "").strip()
-            self.view_mode = "parsed"
+            self.view_mode = "structured"
             self.last_parse_source = "transcript"
             self.last_parsed_events = 0
 
@@ -829,7 +829,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             backend_display = self.launch_backend or "N/A"
             session_display = self.tmux_session or "N/A"
             log_display = self.log_file or "N/A"
-            view_display = "Parsed Markdown" if self.view_mode == "parsed" else "Raw ANSI"
+            view_display = "Structured" if self.view_mode == "structured" else "Raw ANSI"
             parser_display = f"{self.last_parse_source} ({self.last_parsed_events} events)"
             return (
                 f"Agent: {self.owner}\n"
@@ -846,10 +846,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             with Container(id="agent_session_center"):
                 with Container(id="agent_session_dialog"):
                     with Container(id="agent_session_body_stack"):
-                        if Markdown is not None:
-                            yield Markdown("Loading session output...", id="agent_session_body_markdown")
-                        else:
-                            yield Static(Text("Loading session output..."), id="agent_session_body_markdown")
+                        yield Static(Text("Loading session output..."), id="agent_session_body_structured")
                         yield Static(Text("Loading session output..."), id="agent_session_body_raw", classes="hidden")
                     with Horizontal(id="agent_session_footer"):
                         yield Static(Text(self._build_meta_text(), style="bold #dce9ff"), id="agent_session_meta")
@@ -863,37 +860,86 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             meta_widget = self.query_one("#agent_session_meta", Static)
             meta_widget.update(Text(self._build_meta_text(), style="bold #dce9ff"))
 
+        @staticmethod
+        def _block_style(kind: str) -> tuple[str, str]:
+            palette = {
+                "chat_codex": ("#7de3a3", "Codex"),
+                "chat_agent": ("#7ab7ff", "Agent"),
+                "think": ("#f2c572", "Think"),
+                "code": ("#e8bf7a", "Code"),
+                "tool_call": ("#7ab7ff", "Tool Call"),
+                "tool_result": ("#e8bf7a", "Tool Result"),
+                "status": ("#9fa8b2", "Status"),
+                "error": ("#ff7d7d", "Error"),
+                "terminal": ("#d8bf7c", "Terminal"),
+                "event": ("#8fc4ff", "Event"),
+            }
+            return palette.get(kind, ("#8fc4ff", "Event"))
+
+        def _render_structured_block(self, block: SessionBlock) -> Group:
+            color, fallback_label = self._block_style(block.kind)
+            header = Text()
+            header.append("● ", style=color)
+            header.append(block.label or fallback_label, style=f"bold {color}")
+            if block.timestamp:
+                header.append(f"  {block.timestamp}", style="dim")
+            if block.event_type:
+                header.append(f"  [{block.event_type}]", style="#4d6f99")
+
+            lines: list[Text] = [header]
+            body = (block.body or "").strip()
+            if block.kind == "code":
+                body_style = "#e8bf7a"
+            elif block.kind == "think":
+                body_style = "#f2c572"
+            elif block.kind == "status":
+                body_style = "#9fa8b2"
+            elif block.kind == "error":
+                body_style = "#ffb3b3"
+            else:
+                body_style = "#dce9ff"
+            if body:
+                for line in body.splitlines():
+                    lines.append(Text(f"  {line}", style=body_style))
+            else:
+                lines.append(Text("  (no content)", style="dim"))
+            return Group(*lines)
+
         def _apply_view_mode(self) -> None:
-            markdown_widget = self.query_one("#agent_session_body_markdown")
+            structured_widget = self.query_one("#agent_session_body_structured", Static)
             raw_widget = self.query_one("#agent_session_body_raw", Static)
 
-            if self.view_mode == "parsed":
-                markdown_widget.remove_class("hidden")
+            if self.view_mode == "structured":
+                structured_widget.remove_class("hidden")
                 raw_widget.add_class("hidden")
             else:
-                markdown_widget.add_class("hidden")
+                structured_widget.add_class("hidden")
                 raw_widget.remove_class("hidden")
 
         def _set_message(self, message: str, style: str = "yellow") -> None:
-            markdown_message = f"```text\n{message}\n```"
-
-            markdown_widget = self.query_one("#agent_session_body_markdown")
-            if Markdown is not None and isinstance(markdown_widget, Markdown):
-                markdown_widget.update(markdown_message)
-            else:
-                markdown_widget.update(Text(message, style=style))
+            structured_widget = self.query_one("#agent_session_body_structured", Static)
+            structured_widget.update(Text(message, style=style))
 
             raw_widget = self.query_one("#agent_session_body_raw", Static)
             raw_widget.update(Text(message, style=style))
 
             self._apply_view_mode()
 
-        def _set_parsed_body(self, markdown_body: str) -> None:
-            markdown_widget = self.query_one("#agent_session_body_markdown")
-            if Markdown is not None and isinstance(markdown_widget, Markdown):
-                markdown_widget.update(markdown_body)
-            else:
-                markdown_widget.update(Text(markdown_body))
+        def _set_structured_body(self, view: SessionView) -> None:
+            structured_widget = self.query_one("#agent_session_body_structured", Static)
+            if not view.blocks:
+                structured_widget.update(Text("(No structured events yet)", style="dim"))
+                self._apply_view_mode()
+                return
+
+            renderables: list[Any] = []
+            total = len(view.blocks)
+            for idx, block in enumerate(view.blocks):
+                renderables.append(self._render_structured_block(block))
+                if idx < total - 1:
+                    renderables.append(Text("─" * 72, style="#42566f"))
+
+            structured_widget.update(Group(*renderables))
 
             self._apply_view_mode()
 
@@ -952,14 +998,14 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 return
 
             log_tail = read_tail_text(self.log_file) if self.log_file and self.log_file != "N/A" else ""
-            parsed = parse_session_markdown(content, log_tail=log_tail)
-            self.last_parse_source = parsed.source
-            self.last_parsed_events = parsed.parsed_events
-            self._set_parsed_body(parsed.markdown)
+            structured = parse_session_structured(content, log_tail=log_tail)
+            self.last_parse_source = structured.source
+            self.last_parsed_events = structured.parsed_events
+            self._set_structured_body(structured)
             self._set_meta()
 
         def action_toggle_view(self) -> None:
-            self.view_mode = "raw" if self.view_mode == "parsed" else "parsed"
+            self.view_mode = "raw" if self.view_mode == "structured" else "structured"
             self._refresh_body()
 
         def action_close_modal(self) -> None:
@@ -1401,7 +1447,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 Text("COMMANDS", style="bold"),
                 Text("  Ctrl+R   Run start"),
                 Text("  Ctrl+E   Emergency stop"),
-                Text("  Enter/Click on Running Agents: Session overlay (Tab: Raw/Markdown)"),
+                Text("  Enter/Click on Running Agents: Session overlay (Tab: Raw/Structured)"),
             ]
             if self.last_error:
                 palette_lines.extend(
