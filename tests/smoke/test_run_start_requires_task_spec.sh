@@ -10,8 +10,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |

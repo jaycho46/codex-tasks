@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 echo "# Scenario Repo" > "$REPO/README.md"
@@ -18,7 +19,7 @@ git -C "$REPO" commit -q -m "chore: initial"
 
 $CLI --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -27,10 +28,10 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |
 EOF
 
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 # First scheduler run: only T1-001 should start.
@@ -47,8 +48,8 @@ if [[ ! -d "$WT_A" ]]; then
 fi
 
 # Simulate task completion from agent worktree context.
-$CLI --repo "$WT_A" --state-dir "$REPO/.state" task update AgentA T1-001 DONE "done in smoke"
-$CLI --repo "$WT_A" --state-dir "$REPO/.state" task unlock AgentA T1-001
+$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "done in smoke"
+$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task unlock AgentA T1-001
 
 # Source-of-truth for scheduler is the primary repo TODO board.
 # Simulate merge/finish by reflecting T1-001 DONE on main TODO.
@@ -65,8 +66,8 @@ awk -F'|' '
     }
     print
   }
-' "$REPO/TODO.md" > "$TMP_TODO"
-mv "$TMP_TODO" "$REPO/TODO.md"
+' "$REPO/.codex-tasks/planning/TODO.md" > "$TMP_TODO"
+mv "$TMP_TODO" "$REPO/.codex-tasks/planning/TODO.md"
 
 # Second scheduler run: dependent T1-002 should start now.
 RUN2="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-after-done-second)"
@@ -75,13 +76,13 @@ echo "$RUN2"
 echo "$RUN2" | grep -q "Started tasks: 1"
 echo "$RUN2" | grep -q "T1-002"
 
-grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/TODO.md"
-grep -q "| T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |" "$REPO/TODO.md"
+grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T1-002 | Domain core service | T1-001 | wait T1-001 | IN_PROGRESS |" "$REPO/.codex-tasks/planning/TODO.md"
 
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-after-done-second)"
 echo "$STATUS_OUT"
 
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
-echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 reason=active_lock source=lock"
+echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 agent=AgentA task=T1-002"
 
 echo "run start after done smoke test passed"

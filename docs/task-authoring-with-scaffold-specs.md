@@ -20,7 +20,7 @@ codex-tasks task new T2-101 "Billing webhook retry policy"
 # optional: set prerequisite task ids
 codex-tasks task new T2-102 --deps T2-101 "Billing webhook retry jitter tuning"
 
-# 3) edit generated files in tasks/specs/*.md
+# 3) edit generated files in .codex-tasks/planning/specs/*.md
 
 # 4) verify scheduler eligibility
 codex-tasks run start --dry-run
@@ -49,9 +49,9 @@ codex-tasks task new T2-101 "Billing webhook retry policy"
 
 What this does:
 
-- appends a `TODO` row to `TODO.md`
+- appends a `TODO` row to `.codex-tasks/planning/TODO.md`
 - records prerequisites in `Deps` when `--deps` is provided (comma/space separated task ids)
-- creates `tasks/specs/T2-101.md`
+- creates `.codex-tasks/planning/specs/T2-101.md`
 
 ## Generate Specs (Bulk / Existing TODO Rows)
 
@@ -81,7 +81,7 @@ codex-tasks task scaffold-specs --task T2-101 --force
 
 ## Required Spec Sections
 
-Each `tasks/specs/<TASK_ID>.md` file must include these exact section headings:
+Each `.codex-tasks/planning/specs/<TASK_ID>.md` file must include these exact section headings:
 
 - `## Goal`
 - `## In Scope`
@@ -125,6 +125,6 @@ Immediate recovery sequence:
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| `reason=missing_task_spec` | `tasks/specs/<task_id>.md` does not exist | Run `codex-tasks task scaffold-specs` and commit the new file |
+| `reason=missing_task_spec` | `.codex-tasks/planning/specs/<task_id>.md` does not exist | Run `codex-tasks task scaffold-specs` |
 | `reason=invalid_task_spec` | Missing or empty `Goal`, `In Scope`, or `Acceptance Criteria` | Fill all required sections with non-empty content |
 | Task still excluded after spec update | TODO status/deps/runtime rules still block it | Check `deps_not_ready` and active lock/worker reasons |

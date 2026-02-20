@@ -18,6 +18,13 @@ All notable changes to this project are documented in this file.
   - tmux worker launcher starts a detached watcher to clean up on worker exit.
   - Auto-cleanup removes tmux/pid/lock/worktree/branch.
   - TODO rollback is skipped when task status is already `DONE`.
+- Planning artifacts can now be stored outside the repository.
+  - New config key: `repo.spec_dir` (default: `.codex-tasks/planning/specs`).
+  - Scheduler/spec validation/scaffolding now read from configured `todo_file` + `spec_dir`.
+  - Worker prompts now reference the resolved spec path instead of a fixed in-repo path.
+- Init/default planning layout moved under `.codex-tasks/planning`.
+  - Default `repo.todo_file`: `.codex-tasks/planning/TODO.md`
+  - Default `repo.spec_dir`: `.codex-tasks/planning/specs`
 
 ### Tests
 

@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 
 "$CLI" --repo "$REPO" task init >/dev/null
 
@@ -30,8 +31,8 @@ awk -F'|' '
     }
     print
   }
-' "$REPO/TODO.md" > "$TMP_TODO"
-mv "$TMP_TODO" "$REPO/TODO.md"
+' "$REPO/.codex-tasks/planning/TODO.md" > "$TMP_TODO"
+mv "$TMP_TODO" "$REPO/.codex-tasks/planning/TODO.md"
 
 OUT_NEW="$("$CLI" --repo "$REPO" task new T4-321 --deps T4-320 "New task summary")"
 echo "$OUT_NEW"
@@ -39,11 +40,11 @@ echo "$OUT_NEW"
 echo "$OUT_NEW" | grep -q "Added task to TODO board: T4-321"
 echo "$OUT_NEW" | grep -q "Created task: id=T4-321"
 
-grep -q "| T4-321 | New task summary | T4-320 |  | TODO |" "$REPO/TODO.md"
-test -f "$REPO/tasks/specs/T4-321.md"
-grep -q "^## Goal$" "$REPO/tasks/specs/T4-321.md"
-grep -q "^## In Scope$" "$REPO/tasks/specs/T4-321.md"
-grep -q "^## Acceptance Criteria$" "$REPO/tasks/specs/T4-321.md"
+grep -q "| T4-321 | New task summary | T4-320 |  | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+test -f "$REPO/.codex-tasks/planning/specs/T4-321.md"
+grep -q "^## Goal$" "$REPO/.codex-tasks/planning/specs/T4-321.md"
+grep -q "^## In Scope$" "$REPO/.codex-tasks/planning/specs/T4-321.md"
+grep -q "^## Acceptance Criteria$" "$REPO/.codex-tasks/planning/specs/T4-321.md"
 
 OUT_READY="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new --max-start 0)"
 echo "$OUT_READY"

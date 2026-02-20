@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -20,24 +21,20 @@ git -C "$REPO" commit -q -m "chore: initial"
 
 "$CLI" --repo "$REPO" task init
 
-# Keep orchestration config in local .state (untracked), which is common in real runs.
-cat > "$REPO/.state/orchestrator.toml" <<'EOF'
+# Keep orchestration config in local .codex-tasks (untracked), which is common in real runs.
+cat > "$REPO/.codex-tasks/orchestrator.toml" <<'EOF'
 [repo]
 base_branch = "release"
 EOF
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T1-001 | Respect configured base branch | - | seed | TODO |
 EOF
-git -C "$REPO" add TODO.md
-git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
-git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 git -C "$REPO" checkout -q -b release
 echo "release baseline" > "$REPO/release-baseline.txt"
@@ -69,14 +66,12 @@ fi
 echo "task deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T1-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.state" task update AgentA T1-001 DONE "done on release flow"
-git -C "$WT" add TODO.md
-git -C "$WT" commit -q -m "chore: mark T1-001 done"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "done on release flow"
 
 # User can still switch away before completion; completion must honor configured base branch.
 git -C "$REPO" checkout -q main
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T1-001 --summary "done on release flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-001 --summary "done on release flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 if ! echo "$COMPLETE_OUT" | grep -q -- "-> release"; then
   echo "task complete should merge into configured base branch release"

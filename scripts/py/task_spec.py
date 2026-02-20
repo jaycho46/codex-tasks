@@ -11,8 +11,19 @@ _CHECKBOX_RE = re.compile(r"^[-*+]\s+\[[ xX]\]\s*(.+)$")
 _LIST_ITEM_RE = re.compile(r"^(?:[-*+]\s+|\d+\.\s+)(.+)$")
 
 
-def task_spec_rel_path(task_id: str) -> str:
-    return f"tasks/specs/{task_id}.md"
+def task_spec_rel_path(task_id: str, spec_dir: str = ".codex-tasks/planning/specs") -> str:
+    base = Path(spec_dir).expanduser()
+    target = base / f"{task_id}.md"
+    if target.is_absolute():
+        return str(target)
+    return target.as_posix()
+
+
+def task_spec_abs_path(repo_root: str | Path, task_id: str, spec_dir: str = ".codex-tasks/planning/specs") -> Path:
+    spec_ref = Path(task_spec_rel_path(task_id, spec_dir)).expanduser()
+    if spec_ref.is_absolute():
+        return spec_ref
+    return Path(repo_root) / spec_ref
 
 
 def _normalize_summary_text(text: str) -> str:
@@ -81,10 +92,9 @@ def _acceptance_summary(section: str) -> str:
     return _first_nonempty_line(section)
 
 
-def evaluate_task_spec(repo_root: str | Path, task_id: str) -> dict[str, Any]:
-    repo_path = Path(repo_root)
-    rel_path = task_spec_rel_path(task_id)
-    spec_path = repo_path / rel_path
+def evaluate_task_spec(repo_root: str | Path, task_id: str, spec_dir: str = ".codex-tasks/planning/specs") -> dict[str, Any]:
+    rel_path = task_spec_rel_path(task_id, spec_dir)
+    spec_path = task_spec_abs_path(repo_root, task_id, spec_dir)
 
     result: dict[str, Any] = {
         "task_id": task_id,

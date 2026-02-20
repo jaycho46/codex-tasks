@@ -18,9 +18,9 @@
 <p align="center">
   <img alt="codex skill" src="https://img.shields.io/badge/Codex%20Skill-0f766e?style=for-the-badge">
   <img alt="codex skill" src="https://img.shields.io/badge/macOS-000000?logoColor=F0F0F0&style=for-the-badge">
-  <img alt="license" src="https://img.shields.io/github/license/jaycho46/codex-teams?style=for-the-badge">
-  <img alt="version" src="https://img.shields.io/github/v/release/jaycho46/codex-teams?style=for-the-badge">
-  <img alt="tests" src="https://img.shields.io/github/actions/workflow/status/jaycho46/codex-teams/ci.yml?branch=main&style=for-the-badge&label=tests">
+  <img alt="license" src="https://img.shields.io/github/license/jaycho46/codex-tasks?style=for-the-badge">
+  <img alt="version" src="https://img.shields.io/github/v/release/jaycho46/codex-tasks?style=for-the-badge">
+  <img alt="tests" src="https://img.shields.io/github/actions/workflow/status/jaycho46/codex-tasks/ci.yml?branch=main&style=for-the-badge&label=tests">
 </p>
 
 ## Best Practice (Recommended)
@@ -79,22 +79,34 @@ Plan authentication work and create an executable TODO list with task specs.
 Keep tasks small, add dependencies where needed, and summarize what you changed.
 ```
 
-### 2) In terminal, commit planning artifacts (`TODO.md` + task specs)
+### 2) Planning files default to `.codex-tasks/planning/` (gitignored)
 
-Commit planning files so worker worktrees can pick them up.
+Default planning paths:
 
-Commit prompt example:
+- `.codex-tasks/planning/TODO.md`
+- `.codex-tasks/planning/specs/<task_id>.md`
 
-```text
-Commit planning files so worker worktrees can pick them up.
+Because `.codex-tasks/` is usually in `.gitignore`, planning updates stay local by default.
+
+### Optional: keep planning files out of Git
+
+If task-planning commits cause too much churn, you can move planning artifacts
+outside the repository and keep only code changes in Git.
+
+Configure `.codex-tasks/orchestrator.toml`:
+
+```toml
+[repo]
+todo_file = "../codex-tasks-worktrees/.planning/TODO.md"
+spec_dir = "../codex-tasks-worktrees/.planning/specs"
+state_dir = "../codex-tasks-worktrees/.codex-tasks-shared"
 ```
 
-or
+Notes:
 
-```bash
-git add TODO.md tasks/specs/*.md
-git commit -m "docs: add task plan and specs"
-```
+- `todo_file` and `spec_dir` now support absolute or repo-relative paths.
+- keep runtime state (`state_dir`) ignored in Git; `codex-tasks init --gitignore yes` handles this when state is inside the repo.
+- this avoids planning commits, but all participants must point to the same shared paths to collaborate on one queue.
 
 ### 3) In terminal, orchestrate execution
 
@@ -116,20 +128,20 @@ Dashboard operations:
 
 ## How It Works
 
-`codex-tasks` uses `TODO.md` as a dependency-aware queue and applies a strict task lifecycle.
+`codex-tasks` uses `.codex-tasks/planning/TODO.md` as a dependency-aware queue and applies a strict task lifecycle.
 
-1. Queue build (`TODO.md` -> ready/excluded)
+1. Queue build (`.codex-tasks/planning/TODO.md` -> ready/excluded)
 
-- Scheduler scans `TODO.md` and evaluates only rows with `TODO` status.
+- Scheduler scans `.codex-tasks/planning/TODO.md` and evaluates only rows with `TODO` status.
 - A task is added to the ready queue only when:
   - no active worker, active lock, or conflicting runtime signal exists
   - dependencies are ready
-  - spec file exists and is valid (`tasks/specs/<task_id>.md`)
+  - spec file exists and is valid (`.codex-tasks/planning/specs/<task_id>.md`)
 - Non-ready tasks stay visible as excluded with reasons such as `deps_not_ready`, `missing_task_spec`, or `invalid_task_spec`.
 
 ```mermaid
 flowchart LR
-  A["TODO.md row (status=TODO)"] --> C{"Active worker/lock/conflict?"}
+  A[".codex-tasks/planning/TODO.md row (status=TODO)"] --> C{"Active worker/lock/conflict?"}
   C -- "Yes" --> E["Excluded (active_worker / active_lock / active_signal_conflict)"]
   C -- "No" --> G{"Spec exists + valid?"}
   G -- "No" --> H["Excluded (missing_task_spec / invalid_task_spec)"]
@@ -164,7 +176,7 @@ Continuous loop view:
 ```mermaid
 flowchart LR
   subgraph MAIN["Main execution loop"]
-    A["Plan tasks in TODO.md + specs"] --> B["Run scheduler (Ctrl+R or codex-tasks run start)"]
+    A["Plan tasks in .codex-tasks/planning (TODO + specs)"] --> B["Run scheduler (Ctrl+R or codex-tasks run start)"]
     B --> C["Ready queue selection"]
     C --> D["Worker runs in task worktree"]
     D --> E{"Task outcome"}

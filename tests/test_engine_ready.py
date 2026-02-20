@@ -37,11 +37,13 @@ def _write_todo(repo_root: Path, rows: list[tuple[str, str, str, str, str]]) -> 
     ]
     for row in rows:
         table.append(f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]} |")
-    (repo_root / "TODO.md").write_text("\n".join(table) + "\n", encoding="utf-8")
+    todo_path = repo_root / ".codex-tasks" / "planning" / "TODO.md"
+    todo_path.parent.mkdir(parents=True, exist_ok=True)
+    todo_path.write_text("\n".join(table) + "\n", encoding="utf-8")
 
 
 def _write_specs(repo_root: Path, task_ids: list[str]) -> None:
-    spec_dir = repo_root / "tasks" / "specs"
+    spec_dir = repo_root / ".codex-tasks" / "planning" / "specs"
     spec_dir.mkdir(parents=True, exist_ok=True)
     for task_id in task_ids:
         (spec_dir / f"{task_id}.md").write_text(
@@ -124,7 +126,7 @@ class EngineReadyTests(unittest.TestCase):
             payload = _run_engine(repo_root, "status", "--format", "json")
             self.assertIn("task_board", payload)
 
-            todo_text = (repo_root / "TODO.md").read_text(encoding="utf-8")
+            todo_text = (repo_root / ".codex-tasks" / "planning" / "TODO.md").read_text(encoding="utf-8")
             self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
@@ -134,7 +136,9 @@ class EngineReadyTests(unittest.TestCase):
             repo_root.mkdir(parents=True, exist_ok=True)
             _init_git_repo(repo_root)
 
-            (repo_root / "TODO.md").write_text(
+            todo_path = repo_root / ".codex-tasks" / "planning" / "TODO.md"
+            todo_path.parent.mkdir(parents=True, exist_ok=True)
+            todo_path.write_text(
                 "\n".join(
                     [
                         "# TODO Board",
@@ -150,7 +154,7 @@ class EngineReadyTests(unittest.TestCase):
             payload = _run_engine(repo_root, "status", "--format", "json")
             self.assertIn("task_board", payload)
 
-            todo_text = (repo_root / "TODO.md").read_text(encoding="utf-8")
+            todo_text = (repo_root / ".codex-tasks" / "planning" / "TODO.md").read_text(encoding="utf-8")
             self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
@@ -171,7 +175,7 @@ class EngineReadyTests(unittest.TestCase):
             )
             _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004"])
 
-            state_dir = repo_root / ".state"
+            state_dir = repo_root / ".codex-tasks"
             _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
             _write_pid(state_dir, "worker-active.pid", "AgentA", "app-shell", "T1-001", os.getpid(), repo_root)
 
@@ -254,7 +258,7 @@ class EngineReadyTests(unittest.TestCase):
             )
             _write_specs(repo_root, ["T6-001"])
 
-            state_dir = repo_root / ".state"
+            state_dir = repo_root / ".codex-tasks"
             _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T6-001", repo_root)
             _write_pid(
                 state_dir,
@@ -308,7 +312,7 @@ class EngineReadyTests(unittest.TestCase):
                 ],
             )
 
-            spec_dir = repo_root / "tasks" / "specs"
+            spec_dir = repo_root / ".codex-tasks" / "planning" / "specs"
             spec_dir.mkdir(parents=True, exist_ok=True)
             (spec_dir / "T5-001.md").write_text(
                 "\n".join(
@@ -332,6 +336,59 @@ class EngineReadyTests(unittest.TestCase):
             self.assertEqual(payload["excluded_tasks"][0]["task_id"], "T5-001")
             self.assertEqual(payload["excluded_tasks"][0]["reason"], "invalid_task_spec")
             self.assertEqual(payload["excluded_tasks"][0]["source"], "scheduler")
+
+    def test_ready_uses_configured_spec_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            _init_git_repo(repo_root)
+
+            _write_todo(
+                repo_root,
+                [
+                    ("T7-001", "external spec", "-", "", "TODO"),
+                ],
+            )
+
+            spec_root = Path(td) / "planning" / "specs"
+            spec_root.mkdir(parents=True, exist_ok=True)
+            spec_path = spec_root / "T7-001.md"
+            spec_path.write_text(
+                "\n".join(
+                    [
+                        "# Task Spec: T7-001",
+                        "",
+                        "## Goal",
+                        "Goal text",
+                        "",
+                        "## In Scope",
+                        "- scope",
+                        "",
+                        "## Acceptance Criteria",
+                        "- [ ] done",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            cfg_path = repo_root / ".codex-tasks" / "orchestrator.toml"
+            cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            cfg_path.write_text(
+                f"""
+[repo]
+spec_dir = "{spec_root}"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = _run_engine(repo_root, "ready", "--config", str(cfg_path))
+
+            self.assertEqual(len(payload["excluded_tasks"]), 0)
+            self.assertEqual(len(payload["ready_tasks"]), 1)
+            self.assertEqual(payload["ready_tasks"][0]["task_id"], "T7-001")
+            self.assertEqual(payload["ready_tasks"][0]["spec_path"], str(spec_path))
 
 
 if __name__ == "__main__":

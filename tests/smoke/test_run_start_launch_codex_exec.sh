@@ -20,6 +20,7 @@ trap cleanup EXIT
 
 mkdir -p "$REPO" "$FAKE_BIN"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -40,17 +41,17 @@ chmod +x "$FAKE_BIN/codex"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T8-001 | Launch worker | - | launch smoke | TODO |
 EOF
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$(PATH="$FAKE_BIN:$PATH" "$CLI" --repo "$REPO" run start --trigger smoke-launch --max-start 1)"
@@ -59,7 +60,7 @@ echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 echo "$RUN_OUT" | grep -q "Launched codex worker: task=T8-001"
 
-PID_META="$REPO/.state/orchestrator/t8-001.pid"
+PID_META="$REPO/.codex-tasks/orchestrator/t8-001.pid"
 if [[ ! -f "$PID_META" ]]; then
   echo "missing pid metadata: $PID_META"
   exit 1
@@ -108,7 +109,7 @@ if [[ ! -s "$FAKE_ARGS" ]]; then
 fi
 
 PRIMARY_REPO="$(git -C "$REPO" rev-parse --show-toplevel)"
-EXPECTED_STATE_DIR="$PRIMARY_REPO/.state"
+EXPECTED_STATE_DIR="$PRIMARY_REPO/.codex-tasks"
 
 grep -Fx -- "--cd" "$FAKE_ARGS" >/dev/null
 grep -Fx -- "--add-dir" "$FAKE_ARGS" >/dev/null

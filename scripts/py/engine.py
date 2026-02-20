@@ -29,7 +29,7 @@ from state_model import (
     load_pid_inventory,
     summarize,
 )
-from task_spec import evaluate_task_spec, task_spec_rel_path
+from task_spec import evaluate_task_spec, task_spec_abs_path
 from todo_parser import TodoError, build_indexes, deps_ready, parse_todo
 
 
@@ -69,6 +69,7 @@ def to_env(ctx: dict[str, Any]) -> str:
         "REPO_NAME": ctx["repo_name"],
         "BASE_BRANCH": ctx["base_branch"],
         "TODO_FILE": ctx["todo_file"],
+        "SPEC_DIR": ctx["spec_dir"],
         "STATE_DIR": state_dir,
         "LOCK_DIR": ctx["lock_dir"],
         "ORCH_DIR": ctx["orch_dir"],
@@ -237,7 +238,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             )
             continue
 
-        spec = evaluate_task_spec(ctx["repo_root"], task_id)
+        spec = evaluate_task_spec(ctx["repo_root"], task_id, spec_dir=ctx["spec_dir"])
         if not spec["exists"]:
             excluded_tasks.append(
                 {
@@ -291,6 +292,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "deps": task["deps"],
                 "status": task["status"],
                 "spec_rel_path": str(spec.get("spec_rel_path") or ""),
+                "spec_path": str(spec.get("spec_path") or ""),
                 "goal_summary": str(spec.get("goal_summary") or ""),
                 "in_scope_summary": str(spec.get("in_scope_summary") or ""),
                 "acceptance_summary": str(spec.get("acceptance_summary") or ""),
@@ -303,6 +305,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "trigger": args.trigger,
         "repo_root": ctx["repo_root"],
+        "spec_dir": ctx["spec_dir"],
         "state_dir": ctx["state_dir"],
         "max_start": max_start,
         "running_locks": running_locks,
@@ -325,7 +328,7 @@ def cmd_ready(args: argparse.Namespace) -> None:
                         task["scope"],
                         task["deps"],
                         task["status"],
-                        str(task.get("spec_rel_path") or ""),
+                        str(task.get("spec_path") or ""),
                         str(task.get("goal_summary") or ""),
                         str(task.get("in_scope_summary") or ""),
                         str(task.get("acceptance_summary") or ""),
@@ -501,6 +504,7 @@ def _status_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "repo_root": ready_payload["repo_root"],
+        "spec_dir": ready_payload.get("spec_dir", ""),
         "state_dir": ready_payload["state_dir"],
         "scheduler": {
             "trigger": ready_payload["trigger"],
@@ -1950,11 +1954,14 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 self._render_payload()
                 return
             repo_root = Path(repo_root_raw)
+            spec_dir_raw = str(self.current_payload.get("spec_dir", "")).strip()
+            if not spec_dir_raw:
+                spec_dir_raw = ".codex-tasks/planning/specs"
 
-            spec_meta = evaluate_task_spec(repo_root, task_id)
+            spec_meta = evaluate_task_spec(repo_root, task_id, spec_dir=spec_dir_raw)
             spec_path_raw = str(spec_meta.get("spec_path") or "").strip()
             if not spec_path_raw:
-                spec_path_raw = str((repo_root / task_spec_rel_path(task_id)).resolve())
+                spec_path_raw = str(task_spec_abs_path(repo_root, task_id, spec_dir=spec_dir_raw).resolve())
             spec_path = Path(spec_path_raw)
 
             if not spec_path.exists():

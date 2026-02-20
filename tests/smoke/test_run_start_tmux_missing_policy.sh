@@ -18,6 +18,7 @@ trap cleanup EXIT
 
 mkdir -p "$REPO" "$FAKE_BIN"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -43,17 +44,17 @@ chmod +x "$FAKE_BIN/tmux"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T9-201 | tmux policy | - | policy check | TODO |
 EOF
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 set +e

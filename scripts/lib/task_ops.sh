@@ -45,6 +45,30 @@ resolve_python_bin() {
 
 load_runtime_context() {
   PYTHON_BIN="${PYTHON_BIN:-$(resolve_python_bin)}"
+  TEAM_CONFIG_EFFECTIVE="${TEAM_CONFIG_ARG:-}"
+
+  if [[ -z "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    local state_hint=""
+    local repo_base state_abs
+
+    if [[ -n "${TEAM_STATE_DIR_ARG:-}" ]]; then
+      state_hint="$TEAM_STATE_DIR_ARG"
+    elif [[ -n "${AI_STATE_DIR:-}" ]]; then
+      state_hint="$AI_STATE_DIR"
+    fi
+
+    if [[ -n "$state_hint" ]]; then
+      repo_base="${TEAM_REPO_ARG:-$PWD}"
+      if [[ "$state_hint" == /* ]]; then
+        state_abs="$state_hint"
+      else
+        state_abs="$(cd "$repo_base" && printf '%s/%s\n' "$(pwd -P)" "$state_hint")"
+      fi
+      if [[ -f "$state_abs/orchestrator.toml" ]]; then
+        TEAM_CONFIG_EFFECTIVE="$state_abs/orchestrator.toml"
+      fi
+    fi
+  fi
 
   local -a cmd=(paths)
   if [[ -n "${TEAM_REPO_ARG:-}" ]]; then
@@ -53,8 +77,8 @@ load_runtime_context() {
   if [[ -n "${TEAM_STATE_DIR_ARG:-}" ]]; then
     cmd+=(--state-dir "$TEAM_STATE_DIR_ARG")
   fi
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
   cmd+=(--format env)
 
@@ -241,6 +265,7 @@ initialize_task_state() {
   mkdir -p "$LOCK_DIR"
   ensure_updates_file
   ensure_todo_template
+  mkdir -p "$SPEC_DIR"
 }
 
 canonical_path_if_exists() {
@@ -474,9 +499,15 @@ PY
   while IFS=$'\t' read -r task_id task_title; do
     [[ -n "${task_id:-}" ]] || continue
 
-    local spec_rel spec_abs
-    spec_rel="tasks/specs/${task_id}.md"
-    spec_abs="$REPO_ROOT/$spec_rel"
+    local spec_rel spec_abs spec_dir_trimmed
+    spec_dir_trimmed="${SPEC_DIR%/}"
+    if [[ "$spec_dir_trimmed" == /* ]]; then
+      spec_rel="${spec_dir_trimmed}/${task_id}.md"
+      spec_abs="$spec_rel"
+    else
+      spec_rel="${spec_dir_trimmed}/${task_id}.md"
+      spec_abs="$REPO_ROOT/$spec_rel"
+    fi
 
     if [[ -f "$spec_abs" && "$force" -eq 0 ]]; then
       echo "[SKIP] exists: $spec_rel"
@@ -1013,8 +1044,8 @@ cmd_task_complete() {
   local complete_base_branch="$BASE_BRANCH"
   local complete_base_env=""
   local -a complete_base_ctx=( "$PYTHON_BIN" "$PY_ENGINE" paths --repo "$primary_repo" --state-dir "$STATE_DIR" --format env )
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    complete_base_ctx+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    complete_base_ctx+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
   if complete_base_env="$("${complete_base_ctx[@]}")"; then
     complete_base_branch="$(
@@ -1052,8 +1083,8 @@ cmd_task_complete() {
 
   if [[ "$auto_run_start" -eq 1 ]]; then
     local -a run_cmd=("$scheduler_bin" --repo "$primary_repo" --state-dir "$STATE_DIR")
-    if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-      run_cmd+=(--config "$TEAM_CONFIG_ARG")
+    if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+      run_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
     fi
     run_cmd+=(run start --trigger "$trigger_label")
 
@@ -1111,8 +1142,8 @@ cmd_worktree_start() {
   lock_file="${shared_state}/locks/task-${task_slug}.lock"
 
   cli_base=("$TEAM_BIN" --repo "$worktree_path" --state-dir "$shared_state")
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cli_base+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cli_base+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
 
   (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task init)
@@ -1574,8 +1605,8 @@ cmd_task_stop() {
     task) cmd+=(--task "$target_task") ;;
     all) cmd+=(--all) ;;
   esac
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
 
   local selected_tsv
@@ -1602,8 +1633,8 @@ cmd_task_cleanup_stale() {
   done
 
   local -a cmd=(select-stale --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --format tsv)
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
 
   local selected_tsv
@@ -1656,8 +1687,8 @@ cmd_task_auto_cleanup_exit() {
   fi
 
   local -a cmd=(select-stop --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --task "$task_id" --format tsv)
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
 
   local selected_tsv
@@ -1834,7 +1865,7 @@ build_codex_worker_prompt() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
-  local spec_rel_path="${8:-}"
+  local spec_path="${8:-}"
   local goal_summary="${9:-}"
   local in_scope_summary="${10:-}"
   local acceptance_summary="${11:-}"
@@ -1864,11 +1895,8 @@ build_codex_worker_prompt() {
   rendered_rules="${rendered_rules//__TASK_ID__/$task_id}"
   rendered_rules="${rendered_rules//__SCOPE__/$scope}"
 
-  if [[ -n "$spec_rel_path" ]]; then
-    spec_path_display="${worktree_path}/${spec_rel_path}"
-  else
-    spec_path_display="N/A"
-  fi
+  spec_path_display="${spec_path:-N/A}"
+  rendered_rules="${rendered_rules//__TASK_SPEC_PATH__/$spec_path_display}"
 
   cat <<PROMPT
 Task assignment: ${task_id} (${task_title})
@@ -1959,8 +1987,8 @@ spawn_exit_cleanup_watcher() {
   watcher_log="$logs_dir/watch-${task_slug}-$(date -u +%Y%m%dT%H%M%SZ).log"
 
   local -a cleanup_cmd=("$TEAM_BIN" --repo "$REPO_ROOT" --state-dir "$STATE_DIR")
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cleanup_cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cleanup_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
   cleanup_cmd+=(task auto-cleanup-exit "$task_id" "$expected_pid" --reason "$reason")
   cleanup_cmd_str="$(join_shell_words "${cleanup_cmd[@]}")"
@@ -1979,7 +2007,7 @@ launch_codex_tmux_worker() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
-  local spec_rel_path="${8:-}"
+  local spec_path="${8:-}"
   local goal_summary="${9:-}"
   local in_scope_summary="${10:-}"
   local acceptance_summary="${11:-}"
@@ -2048,7 +2076,7 @@ launch_codex_tmux_worker() {
     codex_flags+=(--json)
   fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -2143,7 +2171,7 @@ launch_codex_exec_worker() {
   local agent="${5:-}"
   local trigger="${6:-manual}"
   local worktree_path="${7:-}"
-  local spec_rel_path="${8:-}"
+  local spec_path="${8:-}"
   local goal_summary="${9:-}"
   local in_scope_summary="${10:-}"
   local acceptance_summary="${11:-}"
@@ -2211,7 +2239,7 @@ launch_codex_exec_worker() {
     codex_flags+=(--color always)
   fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -2462,8 +2490,8 @@ cmd_run_start() {
   trap "rm -f '$run_lock_dir/pid' >/dev/null 2>&1 || true; rmdir '$run_lock_dir' >/dev/null 2>&1 || true" EXIT
 
   local -a ready_cmd=(ready --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --trigger "$trigger")
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    ready_cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    ready_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
   if [[ -n "$max_start_arg" ]]; then
     ready_cmd+=(--max-start "$max_start_arg")
@@ -2477,7 +2505,7 @@ cmd_run_start() {
   ready_tsv="$("$PYTHON_BIN" "$PY_ENGINE" "${ready_cmd[@]}" --format tsv)"
 
   local started_count=0
-  while IFS=$'\t' read -r task_id task_title agent_name scope deps status spec_rel_path goal_summary in_scope_summary acceptance_summary; do
+  while IFS=$'\t' read -r task_id task_title agent_name scope deps status spec_path goal_summary in_scope_summary acceptance_summary; do
     [[ -n "${task_id:-}" ]] || continue
 
     local agent summary start_output worktree_path
@@ -2505,8 +2533,8 @@ cmd_run_start() {
     fi
 
     start_cmd=("$TEAM_BIN" --repo "$REPO_ROOT" --state-dir "$STATE_DIR")
-    if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-      start_cmd+=(--config "$TEAM_CONFIG_ARG")
+    if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+      start_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
     fi
     start_cmd+=(worktree start "$agent" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
 
@@ -2529,11 +2557,11 @@ cmd_run_start() {
     if [[ "$no_launch" -eq 0 ]]; then
       local launch_ok=0
       if [[ "$launch_backend" == "tmux" ]]; then
-        if launch_codex_tmux_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_tmux_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       else
-        if launch_codex_exec_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_exec_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       fi
@@ -2597,8 +2625,8 @@ cmd_unified_status() {
   done
 
   local -a cmd=(status --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --trigger "$trigger")
-  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
-    cmd+=(--config "$TEAM_CONFIG_ARG")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
   if [[ -n "$max_start_arg" ]]; then
     cmd+=(--max-start "$max_start_arg")

@@ -19,6 +19,7 @@ trap cleanup EXIT
 
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -43,7 +44,7 @@ chmod +x "$FAKE_BIN/codex"
 
 $CLI --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -52,11 +53,7 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |
 EOF
 
-git -C "$REPO" add TODO.md
-git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
-git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-complete-initial)"
 echo "$RUN_OUT"
@@ -80,11 +77,9 @@ fi
 echo "done" > "$WT_A/agent-output.txt"
 git -C "$WT_A" add agent-output.txt
 git -C "$WT_A" commit -q -m "feat: complete T1-001"
-"$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.state" task update AgentA T1-001 DONE "smoke complete"
-git -C "$WT_A" add TODO.md
-git -C "$WT_A" commit -q -m "chore: mark T1-001 done"
+"$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "smoke complete"
 
-COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.state" task complete AgentA T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
+COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
 echo "$COMPLETE_OUT"
 
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
@@ -101,10 +96,10 @@ fi
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-complete-next)"
 echo "$STATUS_OUT"
 
-echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 reason=active_worker source=pid"
+echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 agent=AgentA task=T1-002"
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
 
-PID_META="$REPO/.state/orchestrator/t1-002.pid"
+PID_META="$REPO/.codex-tasks/orchestrator/t1-002.pid"
 if [[ ! -f "$PID_META" ]]; then
   echo "missing pid metadata for auto-started task: $PID_META"
   exit 1
@@ -121,10 +116,10 @@ if ! kill -0 "$PID" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/TODO.md"
+grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
-echo "$LAST_SUBJECT" | grep -q "chore: mark T1-001 done"
+echo "$LAST_SUBJECT" | grep -q "feat: complete T1-001"
 if git -C "$REPO" log --pretty=%s | grep -q '^task(T1-001):'; then
   echo "task complete should not create auto-commit subject: task(T1-001): ..."
   exit 1

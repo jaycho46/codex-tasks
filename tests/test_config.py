@@ -17,8 +17,9 @@ class ConfigTests(unittest.TestCase):
             """
 [repo]
 base_branch = "main"
-todo_file = "TODO.md"
-state_dir = ".state"
+todo_file = ".codex-tasks/planning/TODO.md"
+spec_dir = ".codex-tasks/planning/specs"
+state_dir = ".codex-tasks"
 worktree_parent = "../repo-worktrees"
 
 [runtime]
@@ -53,6 +54,7 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
             self.assertTrue(config_path.exists())
             self.assertIn("[repo]", config_path.read_text(encoding="utf-8"))
             self.assertEqual(config["repo"]["worktree_parent"], "../sample-repo-worktrees")
+            self.assertEqual(config["repo"]["spec_dir"], ".codex-tasks/planning/specs")
             self.assertEqual(config["runtime"]["launch_backend"], "tmux")
 
     def test_resolve_context_state_dir_priority(self) -> None:
@@ -64,7 +66,8 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
 
             with patch.dict(os.environ, {}, clear=False):
                 ctx_default = resolve_context(repo_root, config, None, config_path=config_path)
-                self.assertEqual(ctx_default["state_dir"], str((repo_root / ".state").resolve()))
+                self.assertEqual(ctx_default["state_dir"], str((repo_root / ".codex-tasks").resolve()))
+                self.assertEqual(ctx_default["spec_dir"], str((repo_root / ".codex-tasks/planning/specs").resolve()))
 
             with patch.dict(os.environ, {"AI_STATE_DIR": "shared/state"}, clear=False):
                 ctx_env = resolve_context(repo_root, config, None, config_path=config_path)
@@ -78,7 +81,7 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td) / "invalid-repo"
             repo_root.mkdir(parents=True, exist_ok=True)
-            cfg_path = repo_root / ".state" / "orchestrator.toml"
+            cfg_path = repo_root / ".codex-tasks" / "orchestrator.toml"
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             cfg_path.write_text(
                 """
@@ -92,11 +95,29 @@ id_col = 0
             with self.assertRaises(ConfigError):
                 load_config(repo_root, str(cfg_path))
 
+    def test_invalid_spec_dir_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "invalid-spec-dir-repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            cfg_path = repo_root / ".codex-tasks" / "orchestrator.toml"
+            cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            cfg_path.write_text(
+                """
+[repo]
+spec_dir = "   "
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ConfigError):
+                load_config(repo_root, str(cfg_path))
+
     def test_invalid_launch_backend_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td) / "invalid-backend-repo"
             repo_root.mkdir(parents=True, exist_ok=True)
-            cfg_path = repo_root / ".state" / "orchestrator.toml"
+            cfg_path = repo_root / ".codex-tasks" / "orchestrator.toml"
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             cfg_path.write_text(
                 """

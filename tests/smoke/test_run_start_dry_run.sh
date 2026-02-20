@@ -10,8 +10,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -21,14 +22,14 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-003 | Ready task | - | | TODO |
 EOF
 
-mkdir -p "$REPO/.state/locks" "$REPO/.state/orchestrator"
-cat > "$REPO/.state/locks/app-shell.lock" <<EOF
+mkdir -p "$REPO/.codex-tasks/locks" "$REPO/.codex-tasks/orchestrator"
+cat > "$REPO/.codex-tasks/locks/app-shell.lock" <<EOF
 owner=AgentA
 scope=app-shell
 task_id=T1-001
 worktree=$REPO
 EOF
-cat > "$REPO/.state/orchestrator/worker.pid" <<EOF
+cat > "$REPO/.codex-tasks/orchestrator/worker.pid" <<EOF
 owner=AgentA
 scope=app-shell
 task_id=T1-001

@@ -28,18 +28,14 @@ git -C "$REPO" commit -q -m "chore: add codex-tasks scripts"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | TODO |
 EOF
-git -C "$REPO" add TODO.md
-git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
-git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-shared-gitdir --max-start 1)"
 echo "$RUN_OUT"
@@ -54,11 +50,9 @@ fi
 echo "deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T8-002"
-"$CLI" --repo "$WT" --state-dir "$REPO/.state" task update AgentA T8-002 DONE "shared gitdir complete flow"
-git -C "$WT" add TODO.md
-git -C "$WT" commit -q -m "chore: mark T8-002 done"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T8-002 DONE "shared gitdir complete flow"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T8-002 --summary "shared gitdir complete flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T8-002 --summary "shared gitdir complete flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary"
@@ -78,10 +72,10 @@ if [[ -d "$WT" ]]; then
   exit 1
 fi
 
-grep -q "| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | DONE |" "$REPO/TODO.md"
+grep -q "| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
-echo "$LAST_SUBJECT" | grep -q "chore: mark T8-002 done"
+echo "$LAST_SUBJECT" | grep -q "feat: deliver T8-002"
 if git -C "$REPO" log --pretty=%s | grep -q '^task(T8-002):'; then
   echo "task complete should not create auto-commit subject: task(T8-002): ..."
   exit 1

@@ -16,7 +16,7 @@ class TaskSpecTests(unittest.TestCase):
             result = evaluate_task_spec(repo_root, "T1-001")
             self.assertFalse(result["exists"])
             self.assertFalse(result["valid"])
-            self.assertEqual(result["spec_rel_path"], "tasks/specs/T1-001.md")
+            self.assertEqual(result["spec_rel_path"], ".codex-tasks/planning/specs/T1-001.md")
 
     def test_valid_spec_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -108,6 +108,38 @@ class TaskSpecTests(unittest.TestCase):
             self.assertTrue(result["exists"])
             self.assertFalse(result["valid"])
             self.assertTrue(any("empty_sections" in err for err in result["errors"]))
+
+    def test_custom_spec_dir_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td) / "repo"
+            repo_root.mkdir(parents=True, exist_ok=True)
+            spec_root = Path(td) / "planning" / "specs"
+            spec_root.mkdir(parents=True, exist_ok=True)
+            spec_path = spec_root / "T7-001.md"
+            spec_path.write_text(
+                "\n".join(
+                    [
+                        "# Task Spec: T7-001",
+                        "",
+                        "## Goal",
+                        "Goal text",
+                        "",
+                        "## In Scope",
+                        "- scope item",
+                        "",
+                        "## Acceptance Criteria",
+                        "- [ ] done",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = evaluate_task_spec(repo_root, "T7-001", spec_dir=str(spec_root))
+            self.assertTrue(result["exists"])
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["spec_path"], str(spec_path))
+            self.assertEqual(result["spec_rel_path"], str(spec_path))
 
 
 if __name__ == "__main__":

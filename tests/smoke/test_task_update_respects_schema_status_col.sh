@@ -10,8 +10,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Owner | Deps | Status | Notes |
@@ -19,13 +20,13 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-001 | Schema status task | AgentA | - | TODO | keep note |
 EOF
 
-mkdir -p "$REPO/.state"
-cat > "$REPO/.state/orchestrator.toml" <<'EOF'
+mkdir -p "$REPO/.codex-tasks"
+cat > "$REPO/.codex-tasks/orchestrator.toml" <<'EOF'
 [todo]
 status_col = 6
 EOF
 
-git -C "$REPO" add TODO.md .state/orchestrator.toml
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md .codex-tasks/orchestrator.toml
 git -C "$REPO" commit -q -m "seed"
 
 BASE_BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
@@ -33,13 +34,13 @@ WT_PARENT="$TMP_DIR/repo-worktrees"
 WT="$WT_PARENT/repo-agenta-t1-001"
 git -C "$REPO" worktree add -q -b codex/agenta-t1-001 "$WT" "$BASE_BRANCH"
 
-OUT="$($CLI --repo "$WT" --state-dir "$REPO/.state" --config "$REPO/.state/orchestrator.toml" task update AgentA T1-001 IN_PROGRESS 'schema status update')"
+OUT="$($CLI --repo "$WT" --state-dir "$REPO/.codex-tasks" --config "$REPO/.codex-tasks/orchestrator.toml" task update AgentA T1-001 IN_PROGRESS 'schema status update')"
 echo "$OUT"
 echo "$OUT" | grep -q "Update logged: task=T1-001 status=IN_PROGRESS"
 
-grep -q "| T1-001 | Schema status task | AgentA | - | IN_PROGRESS | keep note |" "$REPO/TODO.md"
+grep -q "| T1-001 | Schema status task | AgentA | - | IN_PROGRESS | keep note |" "$REPO/.codex-tasks/planning/TODO.md"
 
-if grep -q "| T1-001 | Schema status task | AgentA | - | TODO | IN_PROGRESS |" "$REPO/TODO.md"; then
+if grep -q "| T1-001 | Schema status task | AgentA | - | TODO | IN_PROGRESS |" "$REPO/.codex-tasks/planning/TODO.md"; then
   echo "status update wrote to the wrong column"
   exit 1
 fi

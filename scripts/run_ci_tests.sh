@@ -27,6 +27,7 @@ smoke_tests=(
   tests/smoke/test_run_start_orphan_worktree_path_recovery.sh
   tests/smoke/test_run_start_scenario.sh
   tests/smoke/test_task_new_creates_todo_and_spec.sh
+  tests/smoke/test_task_new_with_external_planning_store.sh
   tests/smoke/test_task_init_gitignore.sh
   tests/smoke/test_task_init_gitignore_symlink_state_dir.sh
   tests/smoke/test_task_update_respects_schema_status_col.sh

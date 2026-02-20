@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -21,7 +22,7 @@ git -C "$REPO" commit -q -m "chore: initial"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -29,10 +30,10 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T9-101 | Recover orphan worktree path | - | stale dir exists | TODO |
 EOF
 
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 WT_PARENT="$TMP_DIR/repo-worktrees"

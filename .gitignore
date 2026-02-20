@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 testbed/
 .DS_Store
+.codex-tasks/

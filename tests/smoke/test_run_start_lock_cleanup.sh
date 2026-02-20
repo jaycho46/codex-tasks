@@ -10,8 +10,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -26,14 +27,14 @@ OUT1="$($CLI --repo "$REPO" run start --dry-run --trigger smoke-lock-cleanup)"
 echo "$OUT1"
 echo "$OUT1" | grep -q "Started tasks: 1"
 
-if [[ -d "$REPO/.state/orchestrator/run.lock" ]]; then
+if [[ -d "$REPO/.codex-tasks/orchestrator/run.lock" ]]; then
   echo "run.lock should be removed after dry-run"
   exit 1
 fi
 
 # Inject stale lock and ensure scheduler recovers.
-mkdir -p "$REPO/.state/orchestrator/run.lock"
-echo "99999999" > "$REPO/.state/orchestrator/run.lock/pid"
+mkdir -p "$REPO/.codex-tasks/orchestrator/run.lock"
+echo "99999999" > "$REPO/.codex-tasks/orchestrator/run.lock/pid"
 
 OUT2="$($CLI --repo "$REPO" run start --dry-run --trigger smoke-lock-stale)"
 echo "$OUT2"
@@ -41,7 +42,7 @@ echo "$OUT2"
 echo "$OUT2" | grep -q "Found stale scheduler lock"
 echo "$OUT2" | grep -q "Started tasks: 1"
 
-if [[ -d "$REPO/.state/orchestrator/run.lock" ]]; then
+if [[ -d "$REPO/.codex-tasks/orchestrator/run.lock" ]]; then
   echo "stale run.lock should be removed after recovery"
   exit 1
 fi

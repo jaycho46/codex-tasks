@@ -28,7 +28,7 @@ default_worktree_path_for() {
 
 shared_state_dir_for() {
   local parent_dir="${1:-}"
-  echo "${parent_dir}/.state-shared"
+  echo "${parent_dir}/.codex-tasks-shared"
 }
 
 find_worktree_for_branch() {

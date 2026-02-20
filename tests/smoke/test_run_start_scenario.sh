@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -21,7 +22,7 @@ git -C "$REPO" commit -q -m "chore: initial"
 
 $CLI --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
@@ -33,10 +34,10 @@ cat > "$REPO/TODO.md" <<'EOF'
 | T1-005 | CI release pipeline | - | seed | TODO |
 EOF
 
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$($CLI --repo "$REPO" run start --no-launch --trigger smoke-scenario)"
@@ -51,7 +52,7 @@ echo "$RUN_OUT" | grep -q "Coordination: locks=3"
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-scenario)"
 echo "$STATUS_OUT"
 
-echo "$STATUS_OUT" | grep -q "Scheduler: ready=0 excluded=5"
+echo "$STATUS_OUT" | grep -q "Scheduler: ready=0 excluded=2"
 echo "$STATUS_OUT" | grep -q "Runtime: total=3 active=3 stale=0"
 echo "$STATUS_OUT" | grep -q "Coordination: locks=3"
 

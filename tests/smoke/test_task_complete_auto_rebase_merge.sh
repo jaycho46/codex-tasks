@@ -10,6 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -20,18 +21,14 @@ git -C "$REPO" commit -q -m "chore: init"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T6-001 | Rebase merge task | - | auto rebase merge | TODO |
 EOF
-git -C "$REPO" add TODO.md
-git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
-git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-auto-rebase --max-start 1)"
 echo "$RUN_OUT"
@@ -47,25 +44,23 @@ fi
 echo "task deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T6-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.state" task update AgentA T6-001 DONE "auto rebase merge"
-git -C "$WT" add TODO.md
-git -C "$WT" commit -q -m "chore: mark T6-001 done"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T6-001 DONE "auto rebase merge"
 
 # Advance main after task worktree starts to force non-ff merge condition.
 echo "main advanced" > "$REPO/main-advance.txt"
 git -C "$REPO" add main-advance.txt
 git -C "$REPO" commit -q -m "chore: advance main during task"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T6-001 --summary "auto rebase merge" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T6-001 --summary "auto rebase merge" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Fast-forward merge failed, attempting auto-rebase"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary after auto-rebase"
 
 test -f "$REPO/main-advance.txt"
-grep -q "| T6-001 | Rebase merge task | - | auto rebase merge | DONE |" "$REPO/TODO.md"
+grep -q "| T6-001 | Rebase merge task | - | auto rebase merge | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
-echo "$LAST_SUBJECT" | grep -q "chore: mark T6-001 done"
+echo "$LAST_SUBJECT" | grep -q "feat: deliver T6-001"
 if git -C "$REPO" log --pretty=%s | grep -q '^task(T6-001):'; then
   echo "task complete should not create auto-commit subject: task(T6-001): ..."
   exit 1

@@ -17,6 +17,7 @@ trap cleanup EXIT
 
 mkdir -p "$REPO"
 git -C "$REPO" init -q
+mkdir -p "$REPO/.codex-tasks/planning/specs"
 git -C "$REPO" checkout -q -b main
 
 cat > "$REPO/README.md" <<'EOF'
@@ -27,17 +28,17 @@ git -C "$REPO" commit -q -m "chore: init"
 
 "$CLI" --repo "$REPO" task init
 
-cat > "$REPO/TODO.md" <<'EOF'
+cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 | T9-401 | done guard | - | preserve done | TODO |
 EOF
-git -C "$REPO" add TODO.md
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
 "$CLI" --repo "$REPO" task scaffold-specs
-git -C "$REPO" add tasks/specs
+git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-done-guard --max-start 1)"
@@ -66,12 +67,12 @@ awk -F'|' '
   END {
     if (!found) exit 42
   }
-' "$REPO/TODO.md" > "$REPO/TODO.md.tmp"
-mv "$REPO/TODO.md.tmp" "$REPO/TODO.md"
-git -C "$REPO" add TODO.md
+' "$REPO/.codex-tasks/planning/TODO.md" > "$REPO/.codex-tasks/planning/TODO.md.tmp"
+mv "$REPO/.codex-tasks/planning/TODO.md.tmp" "$REPO/.codex-tasks/planning/TODO.md"
+git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: mark T9-401 done in primary"
 
-PID_META="$REPO/.state/orchestrator/t9-401.pid"
+PID_META="$REPO/.codex-tasks/orchestrator/t9-401.pid"
 cat > "$PID_META" <<EOF
 pid=999991
 task_id=T9-401
@@ -91,7 +92,7 @@ echo "$AUTO_OUT"
 echo "$AUTO_OUT" | grep -q "task-auto-cleanup-exit"
 echo "$AUTO_OUT" | grep -q "TODO rollback skipped: task status is DONE"
 
-LOCK_FILE="$REPO/.state/locks/task-t9-401.lock"
+LOCK_FILE="$REPO/.codex-tasks/locks/task-t9-401.lock"
 if [[ -f "$LOCK_FILE" ]]; then
   echo "lock should be removed by auto-cleanup: $LOCK_FILE"
   exit 1
@@ -109,6 +110,6 @@ if git -C "$REPO" rev-parse --verify "codex/agenta-t9-401" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T9-401 | done guard | - | preserve done | DONE |" "$REPO/TODO.md"
+grep -q "| T9-401 | done guard | - | preserve done | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 echo "auto cleanup done guard smoke test passed"

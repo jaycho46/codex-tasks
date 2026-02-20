@@ -201,8 +201,9 @@ else:
 DEFAULT_CONFIG: dict[str, Any] = {
     "repo": {
         "base_branch": "main",
-        "todo_file": "TODO.md",
-        "state_dir": ".state",
+        "todo_file": ".codex-tasks/planning/TODO.md",
+        "spec_dir": ".codex-tasks/planning/specs",
+        "state_dir": ".codex-tasks",
         "worktree_parent": "../<repo>-worktrees",
     },
     "runtime": {
@@ -226,13 +227,29 @@ class ConfigError(RuntimeError):
     pass
 
 
+_STATE_DIR_NAME_CANDIDATES: tuple[str, ...] = (".codex-tasks", ".state")
+
+
+def _default_config_path(repo_root: Path) -> Path:
+    candidates = [repo_root / name / "orchestrator.toml" for name in _STATE_DIR_NAME_CANDIDATES]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    # Use current default when no config exists yet.
+    return repo_root / ".codex-tasks" / "orchestrator.toml"
+
+
 def _bootstrap_config_if_missing(cfg_path: Path) -> None:
     if cfg_path.exists():
         return
 
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
 
-    inferred_repo_name = cfg_path.parent.parent.name if cfg_path.parent.name == ".state" else cfg_path.parent.name
+    inferred_repo_name = (
+        cfg_path.parent.parent.name
+        if cfg_path.parent.name in _STATE_DIR_NAME_CANDIDATES
+        else cfg_path.parent.name
+    )
     default_worktree_parent = str(DEFAULT_CONFIG["repo"]["worktree_parent"]).replace("<repo>", inferred_repo_name)
 
     def q(value: str) -> str:
@@ -242,6 +259,7 @@ def _bootstrap_config_if_missing(cfg_path: Path) -> None:
     template = f"""[repo]
 base_branch = {q(str(DEFAULT_CONFIG["repo"]["base_branch"]))}
 todo_file = {q(str(DEFAULT_CONFIG["repo"]["todo_file"]))}
+spec_dir = {q(str(DEFAULT_CONFIG["repo"]["spec_dir"]))}
 state_dir = {q(str(DEFAULT_CONFIG["repo"]["state_dir"]))}
 worktree_parent = {q(default_worktree_parent)}
 
@@ -284,15 +302,15 @@ def _expand_repo_placeholder(value: str, repo_name: str) -> str:
 
 
 def _repo_root_from_config_path(cfg_path: Path, fallback_repo_root: Path) -> Path:
-    # If config is placed at <repo>/.state/orchestrator.toml, resolve relative
+    # If config is placed at <repo>/.codex-tasks|.state/orchestrator.toml, resolve relative
     # repo paths (TODO.md, worktree_parent, state_dir) from that repo root.
-    if cfg_path.parent.name == ".state":
+    if cfg_path.parent.name in _STATE_DIR_NAME_CANDIDATES:
         return cfg_path.parent.parent.resolve()
     return fallback_repo_root
 
 
 def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[str, Any], Path]:
-    cfg_path = Path(config_path).expanduser() if config_path else (repo_root / ".state" / "orchestrator.toml")
+    cfg_path = Path(config_path).expanduser() if config_path else _default_config_path(repo_root)
     if not cfg_path.is_absolute():
         cfg_path = (repo_root / cfg_path).resolve()
 
@@ -307,6 +325,10 @@ def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[s
         raise ConfigError(f"invalid config root (expected table): {cfg_path}")
 
     merged = _deep_merge(DEFAULT_CONFIG, parsed)
+
+    spec_dir_value = str(merged.get("repo", {}).get("spec_dir", "")).strip()
+    if not spec_dir_value:
+        raise ConfigError("repo.spec_dir must be a non-empty string")
 
     todo = merged.get("todo", {})
     for key in ("id_col", "title_col", "deps_col", "status_col"):
@@ -344,6 +366,7 @@ def resolve_context(
     config_repo_root = _repo_root_from_config_path(config_path, repo_root) if config_path else repo_root
 
     todo_file = _to_abs(config_repo_root, str(config["repo"]["todo_file"]))
+    spec_dir = _to_abs(config_repo_root, str(config["repo"]["spec_dir"]))
     worktree_parent = _to_abs(config_repo_root, str(config["repo"]["worktree_parent"]))
 
     state_src = state_dir_arg or os.getenv("AI_STATE_DIR") or str(config["repo"]["state_dir"])
@@ -367,6 +390,7 @@ def resolve_context(
         "repo_parent": str(repo_parent),
         "base_branch": str(config["repo"]["base_branch"]),
         "todo_file": str(todo_file),
+        "spec_dir": str(spec_dir),
         "state_dir": str(state_dir),
         "lock_dir": str(lock_dir),
         "orch_dir": str(orch_dir),
