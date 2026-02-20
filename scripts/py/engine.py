@@ -30,7 +30,7 @@ from state_model import (
     summarize,
 )
 from task_spec import evaluate_task_spec, task_spec_abs_path
-from todo_parser import TodoError, build_indexes, deps_ready, parse_todo
+from todo_parser import TodoError, build_indexes, deps_ready, make_task_key, parse_todo
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -89,6 +89,11 @@ def ensure_todo_file(todo_path: str | Path) -> Path:
     path = Path(todo_path)
     canonical_template = """# TODO Board
 
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+"""
+    legacy_canonical_template = """# TODO Board
+
 | ID | Title | Deps | Notes | Status |
 |---|---|---|---|---|
 """
@@ -109,6 +114,7 @@ def ensure_todo_file(todo_path: str | Path) -> Path:
         # placeholder that does not match current scheduler defaults.
         # Rewrite only when file is still an untouched empty placeholder.
         if current.strip() in {
+            legacy_canonical_template.strip(),
             legacy_area_template.strip(),
             legacy_owner_template.strip(),
         }:
@@ -129,8 +135,9 @@ def cmd_paths(args: argparse.Namespace) -> None:
     print(json.dumps(ctx, ensure_ascii=False, indent=2))
 
 
-def _task_agent_and_scope(task_id: str) -> tuple[str, str]:
-    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in task_id.strip())
+def _task_agent_and_scope(task_id: str, task_branch: str = "") -> tuple[str, str]:
+    composite = f"{task_branch}-{task_id}" if task_branch else task_id
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in composite.strip())
     while "--" in slug:
         slug = slug.replace("--", "-")
     slug = slug.strip("-") or "task"
@@ -144,29 +151,29 @@ def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str
     task_active_records: dict[str, list[dict[str, Any]]] = {}
 
     for row in records:
-        task_id = str(row.get("task_id") or "")
-        if not task_id or not is_active_state(str(row.get("state") or "")):
+        task_key = str(row.get("task_key") or row.get("key") or "")
+        if not task_key or not is_active_state(str(row.get("state") or "")):
             continue
 
-        task_active_records.setdefault(task_id, []).append(row)
+        task_active_records.setdefault(task_key, []).append(row)
 
         has_alive_pid = bool(row.get("pid_alive"))
         has_lock = bool(row.get("lock_file"))
         if has_alive_pid:
-            active_by_task[task_id] = {
+            active_by_task[task_key] = {
                 "reason": "active_worker", "source": "pid"}
-        elif has_lock and task_id not in active_by_task:
-            active_by_task[task_id] = {
+        elif has_lock and task_key not in active_by_task:
+            active_by_task[task_key] = {
                 "reason": "active_lock", "source": "lock"}
 
-    for task_id, rows in task_active_records.items():
+    for task_key, rows in task_active_records.items():
         if len(rows) <= 1:
             continue
 
         has_lock = any(bool(r.get("lock_file")) for r in rows)
         has_pid = any(bool(r.get("pid_alive")) for r in rows)
         if has_lock and has_pid and len(rows) > 1:
-            conflict_by_task[task_id] = "active_signal_conflict"
+            conflict_by_task[task_key] = "active_signal_conflict"
 
     return active_by_task, conflict_by_task
 
@@ -189,6 +196,8 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
         running_locks.append(
             {
                 "task_id": lock.get("task_id", ""),
+                "task_branch": lock.get("task_branch", ""),
+                "task_key": lock.get("task_key", lock.get("key", "")),
                 "owner": lock.get("owner", ""),
                 "scope": lock.get("scope", ""),
             }
@@ -205,12 +214,17 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             continue
 
         task_id = task["id"]
-        agent, scope = _task_agent_and_scope(task_id)
+        task_branch = str(task.get("branch") or "")
+        task_key = make_task_key(task_id, task_branch)
+        task_base_branch = task_branch or ctx["base_branch"]
+        agent, scope = _task_agent_and_scope(task_id, task_branch)
 
-        if task_id in conflict_by_task:
+        if task_key in conflict_by_task:
             excluded_tasks.append(
                 {
                     "task_id": task_id,
+                    "task_branch": task_branch,
+                    "task_key": task_key,
                     "title": task["title"],
                     "owner": agent,
                     "scope": scope,
@@ -222,11 +236,13 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             )
             continue
 
-        active_signal = active_by_task.get(task_id)
+        active_signal = active_by_task.get(task_key)
         if active_signal is not None:
             excluded_tasks.append(
                 {
                     "task_id": task_id,
+                    "task_branch": task_branch,
+                    "task_key": task_key,
                     "title": task["title"],
                     "owner": agent,
                     "scope": scope,
@@ -238,11 +254,15 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             )
             continue
 
-        spec = evaluate_task_spec(ctx["repo_root"], task_id, spec_dir=ctx["spec_dir"])
+        spec = evaluate_task_spec(
+            ctx["repo_root"], task_id, spec_dir=ctx["spec_dir"], task_branch=task_branch
+        )
         if not spec["exists"]:
             excluded_tasks.append(
                 {
                     "task_id": task_id,
+                    "task_branch": task_branch,
+                    "task_key": task_key,
                     "title": task["title"],
                     "owner": agent,
                     "scope": scope,
@@ -257,6 +277,8 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             excluded_tasks.append(
                 {
                     "task_id": task_id,
+                    "task_branch": task_branch,
+                    "task_key": task_key,
                     "title": task["title"],
                     "owner": agent,
                     "scope": scope,
@@ -268,10 +290,12 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             )
             continue
 
-        if not deps_ready(task["deps"], task_status, gates):
+        if not deps_ready(task["deps"], task_status, gates, task_branch=task_branch):
             excluded_tasks.append(
                 {
                     "task_id": task_id,
+                    "task_branch": task_branch,
+                    "task_key": task_key,
                     "title": task["title"],
                     "owner": agent,
                     "scope": scope,
@@ -286,6 +310,9 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
         ready_tasks.append(
             {
                 "task_id": task_id,
+                "task_branch": task_branch,
+                "task_key": task_key,
+                "base_branch": task_base_branch,
                 "title": task["title"],
                 "owner": agent,
                 "scope": scope,
@@ -318,20 +345,27 @@ def cmd_ready(args: argparse.Namespace) -> None:
     payload = _ready_payload(args)
 
     if args.format == "tsv":
+        placeholder = "__EMPTY__"
+        def f(value: Any) -> str:
+            text = str(value or "")
+            return text if text else placeholder
+
         for task in payload["ready_tasks"]:
             print(
                 "\t".join(
                     [
-                        task["task_id"],
-                        task["title"],
-                        task["owner"],
-                        task["scope"],
-                        task["deps"],
-                        task["status"],
-                        str(task.get("spec_path") or ""),
-                        str(task.get("goal_summary") or ""),
-                        str(task.get("in_scope_summary") or ""),
-                        str(task.get("acceptance_summary") or ""),
+                        f(task.get("task_id", "")),
+                        f(task.get("task_branch", "")),
+                        f(task.get("base_branch", "")),
+                        f(task.get("title", "")),
+                        f(task.get("owner", "")),
+                        f(task.get("scope", "")),
+                        f(task.get("deps", "")),
+                        f(task.get("status", "")),
+                        f(task.get("spec_path", "")),
+                        f(task.get("goal_summary", "")),
+                        f(task.get("in_scope_summary", "")),
+                        f(task.get("acceptance_summary", "")),
                     ]
                 )
             )
@@ -367,6 +401,8 @@ def cmd_inventory(args: argparse.Namespace) -> None:
                     [
                         row["key"],
                         row["task_id"],
+                        str(row.get("task_branch") or ""),
+                        str(row.get("task_key") or row.get("key") or ""),
                         row["owner"],
                         row["scope"],
                         row["state"],
@@ -397,9 +433,13 @@ def _task_board_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     for task in tasks:
         status = str(task.get("status") or "")
+        task_id = str(task.get("id") or "")
+        task_branch = str(task.get("branch") or "")
         rows.append(
             {
-                "task_id": str(task.get("id") or ""),
+                "task_id": task_id,
+                "task_branch": task_branch,
+                "task_key": make_task_key(task_id, task_branch),
                 "title": str(task.get("title") or ""),
                 "deps": str(task.get("deps") or ""),
                 "status": status,
@@ -558,11 +598,19 @@ def _render_status_text(payload: dict[str, Any]) -> str:
         f"excluded={scheduler.get('summary', {}).get('excluded', 0)}"
     )
     for item in ready_tasks:
+        task_label = str(item.get("task_id", ""))
+        task_branch = str(item.get("task_branch", "")).strip()
+        if task_branch:
+            task_label = f"{task_branch}:{task_label}"
         lines.append(
-            f"  [READY] {item.get('task_id', '')} deps={item.get('deps', '')}")
+            f"  [READY] {task_label} deps={item.get('deps', '')}")
     for item in excluded_tasks:
+        task_label = str(item.get("task_id", ""))
+        task_branch = str(item.get("task_branch", "")).strip()
+        if task_branch:
+            task_label = f"{task_branch}:{task_label}"
         lines.append(
-            f"  [EXCLUDED] {item.get('task_id', '')} "
+            f"  [EXCLUDED] {task_label} "
             f"reason={item.get('reason', '')} source={item.get('source', '')}"
         )
 
@@ -581,8 +629,12 @@ def _render_status_text(payload: dict[str, Any]) -> str:
     lines.append(
         f"Coordination: locks={coordination.get('summary', {}).get('locks', 0)}")
     for lock in active_locks:
+        task_label = str(lock.get("task_id", "")).strip()
+        task_branch = str(lock.get("task_branch", "")).strip()
+        if task_branch:
+            task_label = f"{task_branch}:{task_label}"
         lines.append(
-            f"  [LOCK] scope={lock.get('scope', '')} agent={lock.get('owner', '')} task={lock.get('task_id', '')}")
+            f"  [LOCK] scope={lock.get('scope', '')} agent={lock.get('owner', '')} task={task_label}")
 
     return "\n".join(lines)
 
@@ -1503,11 +1555,38 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             return Text(value, style=cls._status_style(value, dim=dim, bold=bold))
 
         @staticmethod
-        def _normalize_task_id(value: Any) -> str:
+        def _normalize_task_key(task_id: Any, task_branch: Any = "", task_key: Any = "") -> str:
+            key_text = str(task_key or "").strip()
+            while len(key_text) >= 2 and key_text.startswith("`") and key_text.endswith("`"):
+                key_text = key_text[1:-1].strip()
+            if key_text:
+                return key_text.lower()
+
+            id_text = str(task_id or "").strip()
+            while len(id_text) >= 2 and id_text.startswith("`") and id_text.endswith("`"):
+                id_text = id_text[1:-1].strip()
+            branch_text = str(task_branch or "").strip()
+            while len(branch_text) >= 2 and branch_text.startswith("`") and branch_text.endswith("`"):
+                branch_text = branch_text[1:-1].strip()
+            return make_task_key(id_text, branch_text).lower()
+
+        @staticmethod
+        def _task_display_label(task_id: Any, task_branch: Any = "") -> str:
+            tid = str(task_id or "").strip()
+            branch = str(task_branch or "").strip()
+            if branch and tid:
+                return f"{branch}:{tid}"
+            return tid
+
+        @staticmethod
+        def _parse_task_display_label(value: Any) -> tuple[str, str]:
             text = str(value or "").strip()
-            while len(text) >= 2 and text.startswith("`") and text.endswith("`"):
-                text = text[1:-1].strip()
-            return text.lower()
+            if ":" in text:
+                branch, task_id = text.split(":", 1)
+                task_id = task_id.strip()
+                if task_id:
+                    return task_id, branch.strip()
+            return text, ""
 
         @staticmethod
         def _payload_signature(payload: dict[str, Any]) -> str:
@@ -1560,7 +1639,12 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             running_task_ids = {
                 task_id
                 for task_id in (
-                    self._normalize_task_id(worker.get("task_id", "")) for worker in running_workers
+                    self._normalize_task_key(
+                        worker.get("task_id", ""),
+                        worker.get("task_branch", ""),
+                        worker.get("task_key", ""),
+                    )
+                    for worker in running_workers
                 )
                 if task_id
             }
@@ -1572,7 +1656,11 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 "IN_PROGRESS": 0,
             }
             for item in task_items:
-                normalized_task_id = self._normalize_task_id(item.get("task_id", ""))
+                normalized_task_id = self._normalize_task_key(
+                    item.get("task_id", ""),
+                    item.get("task_branch", ""),
+                    item.get("task_key", ""),
+                )
                 if normalized_task_id:
                     task_ids_in_board.add(normalized_task_id)
                 raw_status = str(item.get("status", "")).strip().upper()
@@ -1638,12 +1726,14 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             lock_labels: list[str] = []
             for lock in active_locks:
                 task_id = str(lock.get("task_id", "")).strip() or "N/A"
+                task_branch = str(lock.get("task_branch", "")).strip()
                 agent = str(lock.get("owner", "")).strip()
                 scope = str(lock.get("scope", "")).strip()
                 suffix = ""
                 if agent or scope:
                     suffix = f"@{agent}/{scope}".rstrip("/")
-                lock_labels.append(f"{task_id}{suffix}")
+                task_label = f"{task_branch}:{task_id}" if task_branch else task_id
+                lock_labels.append(f"{task_label}{suffix}")
             locks_joined = self._compact_text(
                 ", ".join(lock_labels) if lock_labels else "-")
             logo_lines = [
@@ -1738,15 +1828,16 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             meta.border_subtitle = f"{refresh_seconds:.0f}s interval"
 
             ready_table = self.query_one("#ready_table", DataTable)
-            ready_rows = [
-                (
-                    str(item.get("task_id", "")),
-                    str(item.get("owner", "")),
-                    str(item.get("scope", "")),
-                    str(item.get("deps", "")),
+            ready_rows = []
+            for item in scheduler.get("ready_tasks", []):
+                ready_rows.append(
+                    (
+                        self._task_display_label(item.get("task_id", ""), item.get("task_branch", "")),
+                        str(item.get("owner", "")),
+                        str(item.get("scope", "")),
+                        str(item.get("deps", "")),
+                    )
                 )
-                for item in scheduler.get("ready_tasks", [])
-            ]
             self._fill_table(ready_table, ready_rows,
                              ("-", "-", "-", "-"), key_columns=(0,))
 
@@ -1756,16 +1847,18 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             for worker in running_workers:
                 owner = str(worker.get("owner", ""))
                 task_id = str(worker.get("task_id", ""))
+                task_branch = str(worker.get("task_branch", ""))
+                task_label = self._task_display_label(task_id, task_branch)
                 pid = str(worker.get("pid", "") or "")
                 active_agents.append(
                     (
                         owner,
-                        task_id,
+                        task_label,
                         self._status_cell("IN_PROGRESS"),
                         pid,
                     )
                 )
-                worker_index[(owner, task_id, pid)] = worker
+                worker_index[(owner, task_label, pid)] = worker
             active_agents.sort(key=lambda row: (
                 row[0], row[1], str(row[2]), row[3]))
             self.running_worker_index = worker_index
@@ -1777,20 +1870,26 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             repo_root_path = Path(repo_root) if repo_root else None
             for item in reversed(task_items):
                 task_id = str(item.get("task_id", ""))
-                normalized_task_id = self._normalize_task_id(task_id)
+                task_branch = str(item.get("task_branch", ""))
+                task_label = self._task_display_label(task_id, task_branch)
+                normalized_task_id = self._normalize_task_key(
+                    task_id,
+                    task_branch,
+                    item.get("task_key", ""),
+                )
                 task_status = "IN_PROGRESS" if normalized_task_id in running_task_ids else str(
                     item.get("status", ""))
                 spec_mark = "-"
                 if repo_root_path is not None and task_id:
                     try:
                         spec_exists = bool(evaluate_task_spec(
-                            repo_root_path, task_id).get("exists"))
+                            repo_root_path, task_id, task_branch=task_branch).get("exists"))
                     except Exception:
                         spec_exists = False
                     spec_mark = "O" if spec_exists else "-"
                 task_rows.append(
                     (
-                        task_id,
+                        task_label,
                         str(item.get("title", "")),
                         self._status_cell(task_status),
                         spec_mark,
@@ -1909,18 +2008,18 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             finally:
                 self.refresh_in_flight = False
 
-        def _selected_task_id(self) -> str:
+        def _selected_task_ref(self) -> tuple[str, str]:
             task_table = self.query_one("#task_table", DataTable)
             if not task_table.is_valid_row_index(task_table.cursor_row):
-                return ""
+                return "", ""
             try:
                 row = task_table.get_row_at(task_table.cursor_row)
             except Exception:
-                return ""
-            task_id = str(row[0] if row else "").strip()
-            if not task_id or task_id == "-":
-                return ""
-            return task_id
+                return "", ""
+            task_label = str(row[0] if row else "").strip()
+            if not task_label or task_label == "-":
+                return "", ""
+            return self._parse_task_display_label(task_label)
 
         def _selected_agent_worker(self) -> dict[str, Any] | None:
             agents_table = self.query_one("#agents_table", DataTable)
@@ -1947,7 +2046,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.agent_modal_open = True
             self.push_screen(AgentSessionModal(worker), on_close)
 
-        def _open_task_spec(self, task_id: str) -> None:
+        def _open_task_spec(self, task_id: str, task_branch: str = "") -> None:
             repo_root_raw = str(self.current_payload.get("repo_root", "")).strip()
             if not repo_root_raw:
                 self.last_error = "cannot resolve repo root for task spec viewer"
@@ -1958,20 +2057,35 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             if not spec_dir_raw:
                 spec_dir_raw = ".codex-tasks/planning/specs"
 
-            spec_meta = evaluate_task_spec(repo_root, task_id, spec_dir=spec_dir_raw)
+            spec_meta = evaluate_task_spec(
+                repo_root,
+                task_id,
+                spec_dir=spec_dir_raw,
+                task_branch=task_branch,
+            )
             spec_path_raw = str(spec_meta.get("spec_path") or "").strip()
             if not spec_path_raw:
-                spec_path_raw = str(task_spec_abs_path(repo_root, task_id, spec_dir=spec_dir_raw).resolve())
+                spec_path_raw = str(
+                    task_spec_abs_path(
+                        repo_root,
+                        task_id,
+                        spec_dir=spec_dir_raw,
+                        task_branch=task_branch,
+                    ).resolve()
+                )
             spec_path = Path(spec_path_raw)
 
             if not spec_path.exists():
+                scaffold_cmd = f"codex-tasks task scaffold-specs --task {task_id}"
+                if task_branch:
+                    scaffold_cmd = f"{scaffold_cmd} --branch {task_branch}"
                 message = (
                     "# Spec file not found\n\n"
                     "Expected path:\n"
                     f"- `{spec_path}`\n\n"
                     "Create it with one of:\n"
-                    f"- `codex-tasks task new {task_id} \"task summary\"`\n"
-                    f"- `codex-tasks task scaffold-specs --task {task_id}`"
+                    f"- `codex-tasks task new {task_id} --branch {task_branch or '<branch>'} \"task summary\"`\n"
+                    f"- `{scaffold_cmd}`"
                 )
                 self.push_screen(TaskSpecModal(task_id, str(spec_path), message, status="Missing"))
                 return
@@ -2104,10 +2218,10 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
             table_id = getattr(event.data_table, "id", "")
             if table_id == "task_table":
-                task_id = self._selected_task_id()
+                task_id, task_branch = self._selected_task_ref()
                 if not task_id:
                     return
-                self._open_task_spec(task_id)
+                self._open_task_spec(task_id, task_branch)
                 return
             if table_id == "agents_table":
                 worker = self._selected_agent_worker()
@@ -2151,6 +2265,8 @@ def cmd_select_stop(args: argparse.Namespace) -> None:
     selected: list[dict[str, Any]] = []
     if args.task:
         selected = [w for w in workers if w["task_id"] == args.task]
+        if args.branch is not None:
+            selected = [w for w in selected if str(w.get("task_branch") or "") == args.branch]
     elif args.all:
         selected = workers
 
@@ -2161,6 +2277,8 @@ def cmd_select_stop(args: argparse.Namespace) -> None:
                     [
                         row["key"],
                         row["task_id"],
+                        str(row.get("task_branch") or ""),
+                        str(row.get("task_key") or row.get("key") or ""),
                         row["owner"],
                         row["scope"],
                         row["state"],
@@ -2190,6 +2308,8 @@ def cmd_select_stale(args: argparse.Namespace) -> None:
                     [
                         row["key"],
                         row["task_id"],
+                        str(row.get("task_branch") or ""),
+                        str(row.get("task_key") or row.get("key") or ""),
                         row["owner"],
                         row["scope"],
                         row["state"],
@@ -2247,6 +2367,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_stop = sub.add_parser("select-stop")
     add_common(p_stop)
     p_stop.add_argument("--task")
+    p_stop.add_argument("--branch")
     p_stop.add_argument("--all", action="store_true")
     p_stop.add_argument("--format", choices=["json", "tsv"], default="json")
     p_stop.set_defaults(fn=cmd_select_stop)
@@ -2267,6 +2388,8 @@ def main() -> None:
         selected = [bool(args.task), bool(args.all)]
         if sum(selected) != 1:
             die("select-stop requires exactly one of --task, --all")
+        if args.branch is not None and not args.task:
+            die("select-stop --branch requires --task")
 
     try:
         args.fn(args)

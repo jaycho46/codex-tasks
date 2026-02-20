@@ -19,8 +19,29 @@ def task_spec_rel_path(task_id: str, spec_dir: str = ".codex-tasks/planning/spec
     return target.as_posix()
 
 
-def task_spec_abs_path(repo_root: str | Path, task_id: str, spec_dir: str = ".codex-tasks/planning/specs") -> Path:
-    spec_ref = Path(task_spec_rel_path(task_id, spec_dir)).expanduser()
+def task_spec_rel_path_for_branch(
+    task_id: str,
+    task_branch: str = "",
+    spec_dir: str = ".codex-tasks/planning/specs",
+) -> str:
+    base = Path(spec_dir).expanduser()
+    branch = (task_branch or "").strip()
+    if branch:
+        target = base / Path(branch) / f"{task_id}.md"
+    else:
+        target = base / f"{task_id}.md"
+    if target.is_absolute():
+        return str(target)
+    return target.as_posix()
+
+
+def task_spec_abs_path(
+    repo_root: str | Path,
+    task_id: str,
+    spec_dir: str = ".codex-tasks/planning/specs",
+    task_branch: str = "",
+) -> Path:
+    spec_ref = Path(task_spec_rel_path_for_branch(task_id, task_branch, spec_dir)).expanduser()
     if spec_ref.is_absolute():
         return spec_ref
     return Path(repo_root) / spec_ref
@@ -92,12 +113,18 @@ def _acceptance_summary(section: str) -> str:
     return _first_nonempty_line(section)
 
 
-def evaluate_task_spec(repo_root: str | Path, task_id: str, spec_dir: str = ".codex-tasks/planning/specs") -> dict[str, Any]:
-    rel_path = task_spec_rel_path(task_id, spec_dir)
-    spec_path = task_spec_abs_path(repo_root, task_id, spec_dir)
+def evaluate_task_spec(
+    repo_root: str | Path,
+    task_id: str,
+    spec_dir: str = ".codex-tasks/planning/specs",
+    task_branch: str = "",
+) -> dict[str, Any]:
+    rel_path = task_spec_rel_path_for_branch(task_id, task_branch, spec_dir)
+    spec_path = task_spec_abs_path(repo_root, task_id, spec_dir, task_branch)
 
     result: dict[str, Any] = {
         "task_id": task_id,
+        "task_branch": task_branch,
         "spec_rel_path": rel_path,
         "spec_path": str(spec_path),
         "exists": False,

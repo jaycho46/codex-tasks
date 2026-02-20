@@ -84,7 +84,7 @@ Keep tasks small, add dependencies where needed, and summarize what you changed.
 Default planning paths:
 
 - `.codex-tasks/planning/TODO.md`
-- `.codex-tasks/planning/specs/<task_id>.md`
+- `.codex-tasks/planning/specs/<branch>/<task_id>.md`
 
 Because `.codex-tasks/` is usually in `.gitignore`, planning updates stay local by default.
 
@@ -133,10 +133,11 @@ Dashboard operations:
 1. Queue build (`.codex-tasks/planning/TODO.md` -> ready/excluded)
 
 - Scheduler scans `.codex-tasks/planning/TODO.md` and evaluates only rows with `TODO` status.
+- Each TODO row can carry its own `Branch` (base branch) for worker worktree start.
 - A task is added to the ready queue only when:
   - no active worker, active lock, or conflicting runtime signal exists
   - dependencies are ready
-  - spec file exists and is valid (`.codex-tasks/planning/specs/<task_id>.md`)
+  - spec file exists and is valid (`.codex-tasks/planning/specs/<branch>/<task_id>.md`)
 - Non-ready tasks stay visible as excluded with reasons such as `deps_not_ready`, `missing_task_spec`, or `invalid_task_spec`.
 
 ```mermaid

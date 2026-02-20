@@ -15,12 +15,15 @@ This workflow turns TODO rows into executable task specs so workers do not run f
 codex-tasks init
 
 # 2) create task row + spec template together
-codex-tasks task new T2-101 "Billing webhook retry policy"
+codex-tasks task new 101 --branch main "Billing webhook retry policy"
 
-# optional: set prerequisite task ids
-codex-tasks task new T2-102 --deps T2-101 "Billing webhook retry jitter tuning"
+# optional: same-branch dependency uses 3-digit id
+codex-tasks task new 102 --branch main --deps 101 "Billing webhook retry jitter tuning"
 
-# 3) edit generated files in .codex-tasks/planning/specs/*.md
+# optional: cross-branch dependency uses <branch>:<id>
+codex-tasks task new 103 --branch release/1.0 --deps main:101 "Release hardening"
+
+# 3) edit generated files in .codex-tasks/planning/specs/<branch>/*.md
 
 # 4) verify scheduler eligibility
 codex-tasks run start --dry-run
@@ -34,9 +37,9 @@ codex-tasks run start
 Use the standard table shape:
 
 ```md
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T2-101 | Billing webhook retry policy | AgentB | T2-100 | needs backfill | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| 101 | main | Billing webhook retry policy | - | needs backfill | TODO |
 ```
 
 ## Create Tasks Quickly
@@ -44,14 +47,14 @@ Use the standard table shape:
 Recommended path:
 
 ```bash
-codex-tasks task new T2-101 "Billing webhook retry policy"
+codex-tasks task new 101 --branch main "Billing webhook retry policy"
 ```
 
 What this does:
 
 - appends a `TODO` row to `.codex-tasks/planning/TODO.md`
-- records prerequisites in `Deps` when `--deps` is provided (comma/space separated task ids)
-- creates `.codex-tasks/planning/specs/T2-101.md`
+- records prerequisites in `Deps` when `--deps` is provided (same-branch `101` or cross-branch `main:101`)
+- creates `.codex-tasks/planning/specs/main/101.md`
 
 ## Generate Specs (Bulk / Existing TODO Rows)
 
@@ -70,18 +73,18 @@ codex-tasks task scaffold-specs --dry-run
 Generate a specific task only:
 
 ```bash
-codex-tasks task scaffold-specs --task T2-101
+codex-tasks task scaffold-specs --task 101 --branch main
 ```
 
 Overwrite an existing spec:
 
 ```bash
-codex-tasks task scaffold-specs --task T2-101 --force
+codex-tasks task scaffold-specs --task 101 --branch main --force
 ```
 
 ## Required Spec Sections
 
-Each `.codex-tasks/planning/specs/<TASK_ID>.md` file must include these exact section headings:
+Each `.codex-tasks/planning/specs/<BRANCH>/<TASK_ID>.md` file must include these exact section headings:
 
 - `## Goal`
 - `## In Scope`
@@ -90,12 +93,12 @@ Each `.codex-tasks/planning/specs/<TASK_ID>.md` file must include these exact se
 Template:
 
 ```md
-# Task Spec: T2-101
+# Task Spec: 101
 
 Task title: Billing webhook retry policy
 
 ## Goal
-Define the concrete outcome for T2-101.
+Define the concrete outcome for 101.
 
 ## In Scope
 - Describe what must be implemented for this task.
@@ -116,7 +119,7 @@ Scheduler readiness now enforces task specs.
 
 Immediate recovery sequence:
 
-1. Run `codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>` for new tasks, or `task scaffold-specs` for existing rows.
+1. Run `codex-tasks task new <task_id> --branch <base_branch> [--deps <task_id[,task_id...]>] <summary>` for new tasks, or `task scaffold-specs` for existing rows.
 2. Fill required sections in generated spec files.
 3. Re-run `codex-tasks run start --dry-run`.
 4. Confirm exclusion reason is gone, then run `codex-tasks run start`.
@@ -125,6 +128,6 @@ Immediate recovery sequence:
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| `reason=missing_task_spec` | `.codex-tasks/planning/specs/<task_id>.md` does not exist | Run `codex-tasks task scaffold-specs` |
+| `reason=missing_task_spec` | `.codex-tasks/planning/specs/<branch>/<task_id>.md` does not exist | Run `codex-tasks task scaffold-specs` |
 | `reason=invalid_task_spec` | Missing or empty `Goal`, `In Scope`, or `Acceptance Criteria` | Fill all required sections with non-empty content |
 | Task still excluded after spec update | TODO status/deps/runtime rules still block it | Check `deps_not_ready` and active lock/worker reasons |

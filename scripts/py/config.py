@@ -214,9 +214,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "todo": {
         "id_col": 2,
-        "title_col": 3,
-        "deps_col": 4,
-        "status_col": 6,
+        "branch_col": 3,
+        "title_col": 4,
+        "deps_col": 5,
+        "status_col": 7,
         "gate_regex": r"`(G[0-9]+ \\([^)]+\\))`",
         "done_keywords": ["DONE", "완료", "Complete", "complete"],
     },
@@ -271,6 +272,7 @@ codex_flags = {q(str(DEFAULT_CONFIG["runtime"]["codex_flags"]))}
 
 [todo]
 id_col = {int(DEFAULT_CONFIG["todo"]["id_col"])}
+branch_col = {int(DEFAULT_CONFIG["todo"]["branch_col"])}
 title_col = {int(DEFAULT_CONFIG["todo"]["title_col"])}
 deps_col = {int(DEFAULT_CONFIG["todo"]["deps_col"])}
 status_col = {int(DEFAULT_CONFIG["todo"]["status_col"])}
@@ -335,6 +337,11 @@ def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[s
         value = todo.get(key)
         if not isinstance(value, int) or value < 1:
             raise ConfigError(f"todo.{key} must be an integer >= 1")
+
+    branch_col = todo.get("branch_col", 0)
+    if not isinstance(branch_col, int) or branch_col < 0:
+        raise ConfigError("todo.branch_col must be an integer >= 0")
+    todo["branch_col"] = branch_col
 
     if not isinstance(todo.get("done_keywords"), list) or not todo["done_keywords"]:
         raise ConfigError("todo.done_keywords must be a non-empty list")

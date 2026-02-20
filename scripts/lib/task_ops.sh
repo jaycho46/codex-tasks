@@ -123,8 +123,8 @@ ensure_todo_template() {
   cat > "$TODO_FILE" <<'TODO_TEMPLATE'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
 TODO_TEMPLATE
 }
 
@@ -132,8 +132,9 @@ todo_status_by_schema() {
   local mode="${1:-}"
   local task_id="${2:-}"
   local status="${3:-}"
+  local task_branch="${4:-}"
 
-  "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$mode" "$task_id" "$status" <<'PY'
+  "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$mode" "$task_id" "$status" "$task_branch" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -143,6 +144,7 @@ schema = json.loads(sys.argv[2])
 mode = sys.argv[3]
 task_id = (sys.argv[4] or "").strip()
 status_value = (sys.argv[5] or "").strip()
+task_branch = (sys.argv[6] or "").strip()
 
 
 def parse_markdown_row(line: str) -> list[str] | None:
@@ -210,9 +212,36 @@ if not task_id:
     raise SystemExit(3)
 
 id_col = int(schema["id_col"])
+branch_col = int(schema.get("branch_col", 0) or 0)
 status_col = int(schema["status_col"])
 
+
+def resolve_columns(lines: list[str]) -> tuple[int, int, int]:
+    resolved_id = id_col
+    resolved_branch = branch_col
+    resolved_status = status_col
+    for line in lines:
+        cells = parse_markdown_row(line)
+        if cells is None:
+            continue
+        header_map: dict[str, int] = {}
+        # Markdown row parser returns cell-only list (without split("|")
+        # leading/trailing empties). split-style column numbers start at 2.
+        for col_no in range(2, len(cells) + 2):
+            label = cell_at(cells, col_no).strip().lower()
+            if label and label not in header_map:
+                header_map[label] = col_no
+        if "id" not in header_map or "status" not in header_map:
+            continue
+        resolved_id = header_map["id"]
+        resolved_status = header_map["status"]
+        resolved_branch = header_map.get("branch", 0)
+        break
+    return resolved_id, resolved_branch, resolved_status
+
 lines = todo_file.read_text(encoding="utf-8").splitlines()
+id_col, branch_col, status_col = resolve_columns(lines)
+matches: list[tuple[int, list[str], str]] = []
 for idx, line in enumerate(lines):
     cells = parse_markdown_row(line)
     if cells is None:
@@ -223,24 +252,36 @@ for idx, line in enumerate(lines):
         continue
     if candidate_id != task_id:
         continue
+    candidate_branch = cell_at(cells, branch_col) if branch_col > 0 else ""
+    if branch_col > 0 and task_branch and candidate_branch != task_branch:
+        continue
+    matches.append((idx, cells, candidate_branch))
 
-    if mode == "get":
-        print(cell_at(cells, status_col))
-        raise SystemExit(0)
+if not matches:
+    print("task not found in TODO board", file=sys.stderr)
+    raise SystemExit(2)
 
-    set_cell(cells, status_col, status_value)
-    lines[idx] = serialize_markdown_row(cells)
-    todo_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+if branch_col > 0 and not task_branch and len(matches) > 1:
+    print("task id is ambiguous across branches; pass --branch", file=sys.stderr)
+    raise SystemExit(4)
+
+idx, cells, _ = matches[0]
+if mode == "get":
+    print(cell_at(cells, status_col))
     raise SystemExit(0)
 
-print("task not found in TODO board", file=sys.stderr)
-raise SystemExit(2)
+set_cell(cells, status_col, status_value)
+lines[idx] = serialize_markdown_row(cells)
+todo_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+raise SystemExit(0)
+
 PY
 }
 
 update_todo_status() {
   local task_id="${1:-}"
   local status="${2:-}"
+  local task_branch="${3:-}"
 
   if [[ -z "$task_id" || -z "$status" ]]; then
     die "update_todo_status: missing task_id or status"
@@ -249,10 +290,13 @@ update_todo_status() {
   ensure_todo_template
 
   local mutate_note
-  if ! mutate_note="$(todo_status_by_schema set "$task_id" "$status" 2>&1)"; then
+  if ! mutate_note="$(todo_status_by_schema set "$task_id" "$status" "$task_branch" 2>&1)"; then
     case "$?" in
       2)
         die "Task not found in TODO board: $task_id"
+        ;;
+      4)
+        die "Task id is ambiguous across branches: task=$task_id (pass --branch)"
         ;;
       *)
         die "${mutate_note:-Failed to update TODO status for task=$task_id}"
@@ -428,6 +472,7 @@ cmd_task_scaffold_specs() {
   initialize_task_state
 
   local target_task=""
+  local target_branch=""
   local dry_run=0
   local force=0
 
@@ -437,6 +482,15 @@ cmd_task_scaffold_specs() {
         shift || true
         [[ $# -gt 0 ]] || die "Missing value for --task"
         target_task="$1"
+        ;;
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        target_branch="$1"
+        ;;
+      --branch=*)
+        target_branch="${1#--branch=}"
+        [[ -n "$target_branch" ]] || die "Missing value for --branch"
         ;;
       --dry-run)
         dry_run=1
@@ -452,7 +506,7 @@ cmd_task_scaffold_specs() {
   done
 
   local selected_rows
-  if ! selected_rows="$("$PYTHON_BIN" - "$SCRIPT_DIR/py" "$TODO_FILE" "$TODO_SCHEMA_JSON" "$target_task" <<'PY'
+  if ! selected_rows="$("$PYTHON_BIN" - "$SCRIPT_DIR/py" "$TODO_FILE" "$TODO_SCHEMA_JSON" "$target_task" "$target_branch" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -461,6 +515,7 @@ py_dir = Path(sys.argv[1]).resolve()
 todo_file = Path(sys.argv[2]).resolve()
 schema = json.loads(sys.argv[3])
 target_task = (sys.argv[4] or "").strip()
+target_branch = (sys.argv[5] or "").strip()
 
 sys.path.insert(0, str(py_dir))
 from todo_parser import TodoError, parse_todo
@@ -473,16 +528,24 @@ except TodoError as exc:
 
 if target_task:
     selected = [task for task in tasks if str(task.get("id") or "") == target_task]
+    if target_branch:
+        selected = [task for task in selected if str(task.get("branch") or "") == target_branch]
     if not selected:
-        print(f"Task not found in TODO board: {target_task}", file=sys.stderr)
+        if target_branch:
+            print(f"Task not found in TODO board: {target_branch}:{target_task}", file=sys.stderr)
+        else:
+            print(f"Task not found in TODO board: {target_task}", file=sys.stderr)
         raise SystemExit(2)
 else:
     selected = [task for task in tasks if str(task.get("status") or "") == "TODO"]
+    if target_branch:
+        selected = [task for task in selected if str(task.get("branch") or "") == target_branch]
 
 for task in selected:
     task_id = str(task.get("id") or "")
+    task_branch = str(task.get("branch") or "__EMPTY__")
     title = str(task.get("title") or "")
-    print(f"{task_id}\t{title}")
+    print(f"{task_id}\t{task_branch}\t{title}")
 PY
 )"; then
     die "Failed to resolve scaffold targets from TODO board."
@@ -496,16 +559,26 @@ PY
   local generated=0
   local skipped=0
   local action_label
-  while IFS=$'\t' read -r task_id task_title; do
-    [[ -n "${task_id:-}" ]] || continue
+  local row_task_id row_task_branch row_task_title
+  while IFS=$'\t' read -r row_task_id row_task_branch row_task_title; do
+    [[ -n "${row_task_id:-}" ]] || continue
+    [[ "$row_task_branch" == "__EMPTY__" ]] && row_task_branch=""
 
     local spec_rel spec_abs spec_dir_trimmed
     spec_dir_trimmed="${SPEC_DIR%/}"
     if [[ "$spec_dir_trimmed" == /* ]]; then
-      spec_rel="${spec_dir_trimmed}/${task_id}.md"
+      if [[ -n "$row_task_branch" ]]; then
+        spec_rel="${spec_dir_trimmed}/${row_task_branch}/${row_task_id}.md"
+      else
+        spec_rel="${spec_dir_trimmed}/${row_task_id}.md"
+      fi
       spec_abs="$spec_rel"
     else
-      spec_rel="${spec_dir_trimmed}/${task_id}.md"
+      if [[ -n "$row_task_branch" ]]; then
+        spec_rel="${spec_dir_trimmed}/${row_task_branch}/${row_task_id}.md"
+      else
+        spec_rel="${spec_dir_trimmed}/${row_task_id}.md"
+      fi
       spec_abs="$REPO_ROOT/$spec_rel"
     fi
 
@@ -527,12 +600,13 @@ PY
 
     mkdir -p "$(dirname "$spec_abs")"
     cat > "$spec_abs" <<EOF
-# Task Spec: $task_id
+# Task Spec: $row_task_id
 
-Task title: ${task_title:-N/A}
+Task title: ${row_task_title:-N/A}
+Task branch: ${row_task_branch:-N/A}
 
 ## Goal
-Define the concrete outcome for $task_id.
+Define the concrete outcome for $row_task_id.
 
 ## In Scope
 - Describe what must be implemented for this task.
@@ -556,6 +630,7 @@ cmd_task_new() {
 
   local task_id="${1:-}"
   shift || true
+  local task_branch=""
   local deps_raw="-"
   local -a summary_parts=()
   local summary=""
@@ -570,6 +645,15 @@ cmd_task_new() {
       --deps=*)
         deps_raw="${1#--deps=}"
         [[ -n "$deps_raw" ]] || die "Missing value for --deps"
+        ;;
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
         ;;
       --)
         shift || true
@@ -591,10 +675,11 @@ cmd_task_new() {
 
   summary="$(trim "${summary_parts[*]:-}")"
 
-  [[ -n "$task_id" && -n "$summary" ]] || die "Usage: codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>"
+  [[ -n "$task_id" && -n "$summary" && -n "$task_branch" ]] || die "Usage: codex-tasks task new <task_id> --branch <base_branch> [--deps <task_id[,task_id...]>] <summary>"
   [[ "$task_id" != *"|"* ]] || die "task_id must not contain '|': $task_id"
+  git -C "$REPO_ROOT" check-ref-format --branch "$task_branch" >/dev/null 2>&1 || die "Invalid branch name: $task_branch"
 
-  if ! "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$task_id" "$summary" "$deps_raw" <<'PY'
+  if ! "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$task_id" "$summary" "$task_branch" "$deps_raw" <<'PY'
 import json
 import re
 import sys
@@ -604,14 +689,86 @@ todo_file = Path(sys.argv[1])
 schema = json.loads(sys.argv[2])
 task_id = sys.argv[3].strip()
 title = sys.argv[4].strip()
-deps_input = sys.argv[5].strip()
+task_branch = sys.argv[5].strip()
+deps_input = sys.argv[6].strip()
+
+ID_RE = re.compile(r"\d{3}$")
+NUMERIC_ID_RE = re.compile(r"\d{3}$")
+LEGACY_ID_RE = re.compile(r"T\d+-\d+$")
+QUALIFIED_DEP_RE = re.compile(r"([^:\s]+):(\d{3})$")
 
 if not task_id:
     print("Error: task_id is empty", file=sys.stderr)
     raise SystemExit(2)
+if not ID_RE.fullmatch(task_id):
+    print("Error: invalid task_id format (expected exactly 3 digits like 001)", file=sys.stderr)
+    raise SystemExit(2)
 if not title:
     print("Error: summary is empty", file=sys.stderr)
     raise SystemExit(2)
+if not task_branch:
+    print("Error: branch is empty", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def parse_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.split("|")]
+
+
+def cell_at(cells: list[str], col_no: int) -> str:
+    idx = col_no - 1
+    if idx < 0 or idx >= len(cells):
+        return ""
+    return cells[idx].strip()
+
+
+def resolve_columns(lines: list[str]) -> tuple[int, int, int, int, int, list[str]]:
+    id_col = int(schema["id_col"])
+    branch_col = int(schema.get("branch_col", 0) or 0)
+    title_col = int(schema["title_col"])
+    deps_col = int(schema["deps_col"])
+    status_col = int(schema["status_col"])
+
+    table_rows = [idx for idx, line in enumerate(lines) if line.startswith("|")]
+    if not table_rows:
+        raise ValueError("TODO board table not found")
+
+    header_idx = table_rows[0]
+    template_cols = parse_row(lines[header_idx])
+    for idx in table_rows:
+        cols = parse_row(lines[idx])
+        header_map: dict[str, int] = {}
+        for col_no in range(1, len(cols) + 1):
+            label = cell_at(cols, col_no).lower()
+            if label and label not in header_map:
+                header_map[label] = col_no
+        if "id" in header_map and "status" in header_map:
+            id_col = header_map["id"]
+            title_col = header_map.get("title", title_col)
+            deps_col = header_map.get("deps", deps_col)
+            status_col = header_map.get("status", status_col)
+            branch_col = header_map.get("branch", 0)
+            header_idx = idx
+            template_cols = cols
+            break
+
+    return id_col, branch_col, title_col, deps_col, status_col, template_cols
+
+
+def parse_dependency(dep: str) -> tuple[str, str, str]:
+    token = dep.strip()
+    if not token:
+        raise ValueError("empty dependency")
+    if NUMERIC_ID_RE.fullmatch(token):
+        return task_branch, token, token
+    if LEGACY_ID_RE.fullmatch(token):
+        return "", token, token
+    qualified = QUALIFIED_DEP_RE.fullmatch(token)
+    if qualified:
+        return qualified.group(1), qualified.group(2), token
+    raise ValueError(
+        f"invalid dependency id '{token}' (expected 3-digit id or <branch>:<3-digit-id>)"
+    )
 
 deps_value = "-"
 if deps_input and deps_input != "-":
@@ -621,23 +778,20 @@ if deps_input and deps_input != "-":
         dep = dep_raw.strip()
         if not dep:
             continue
-        if dep == task_id:
-            print(f"Error: task cannot depend on itself: {task_id}", file=sys.stderr)
+        try:
+            dep_branch, dep_id, dep_token = parse_dependency(dep)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
             raise SystemExit(2)
-        if not re.fullmatch(r"T\d+-\d+", dep):
-            print(f"Error: invalid dependency id '{dep}' (expected T<digits>-<digits>)", file=sys.stderr)
+        if dep_id == task_id and dep_branch == task_branch:
+            print(f"Error: task cannot depend on itself: {task_branch}:{task_id}", file=sys.stderr)
             raise SystemExit(2)
-        if dep in seen:
+        if dep_token in seen:
             continue
-        seen.add(dep)
-        dep_values.append(dep)
+        seen.add(dep_token)
+        dep_values.append(dep_token)
     if dep_values:
         deps_value = ",".join(dep_values)
-
-id_col = int(schema["id_col"])
-title_col = int(schema["title_col"])
-deps_col = int(schema["deps_col"])
-status_col = int(schema["status_col"])
 
 lines = todo_file.read_text(encoding="utf-8").splitlines()
 table_rows = [idx for idx, line in enumerate(lines) if line.startswith("|")]
@@ -645,25 +799,31 @@ if not table_rows:
     print("Error: TODO board table not found", file=sys.stderr)
     raise SystemExit(2)
 
-header_idx = table_rows[0]
-template_cols = [cell.strip() for cell in lines[header_idx].split("|")]
-for idx in table_rows:
-    cols = [cell.strip() for cell in lines[idx].split("|")]
-    if id_col - 1 < len(cols) and cols[id_col - 1] == "ID":
-        header_idx = idx
-        template_cols = cols
-        break
+try:
+    id_col, branch_col, title_col, deps_col, status_col, template_cols = resolve_columns(lines)
+except ValueError as exc:
+    print(f"Error: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
+if branch_col <= 0:
+    print("Error: TODO board is missing required 'Branch' column", file=sys.stderr)
+    raise SystemExit(2)
 
 for idx in table_rows:
-    cols = [cell.strip() for cell in lines[idx].split("|")]
+    cols = parse_row(lines[idx])
     if id_col - 1 >= len(cols):
         continue
-    existing = cols[id_col - 1]
+    existing = cell_at(cols, id_col)
     if not existing or existing == "ID" or set(existing) == {"-"}:
         continue
+    existing_branch = cell_at(cols, branch_col) if branch_col > 0 else ""
     if existing == task_id:
-        print(f"Error: Task already exists in TODO board: {task_id}", file=sys.stderr)
-        raise SystemExit(2)
+        if branch_col <= 0:
+            print(f"Error: Task already exists in TODO board: {task_id}", file=sys.stderr)
+            raise SystemExit(2)
+        if existing_branch == task_branch:
+            print(f"Error: Task already exists in TODO board: {task_branch}:{task_id}", file=sys.stderr)
+            raise SystemExit(2)
 
 width = max(len(template_cols), status_col + 1)
 if width < 3:
@@ -677,6 +837,8 @@ def set_by_col(col_no: int, value: str) -> None:
         row_cells[i] = value
 
 set_by_col(id_col, task_id)
+if branch_col > 0:
+    set_by_col(branch_col, task_branch)
 set_by_col(title_col, title)
 set_by_col(deps_col, deps_value)
 set_by_col(status_col, "TODO")
@@ -703,31 +865,112 @@ PY
   fi
 
   local new_task_id="$task_id"
-  cmd_task_scaffold_specs --task "$new_task_id"
-  echo "Created task: id=$new_task_id title=$summary"
+  cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch"
+  echo "Created task: branch=$task_branch id=$new_task_id title=$summary"
+}
+
+task_identity_key() {
+  local task_id="${1:-}"
+  local task_branch="${2:-}"
+  [[ -n "$task_id" ]] || {
+    echo ""
+    return 0
+  }
+  if [[ -n "$task_branch" ]]; then
+    echo "${task_branch}::${task_id}"
+    return 0
+  fi
+  echo "$task_id"
+}
+
+task_identity_slug() {
+  local task_id="${1:-}"
+  local task_branch="${2:-}"
+  local task_slug branch_slug
+
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || task_slug="task"
+  if [[ -n "$task_branch" ]]; then
+    branch_slug="$(sanitize "$task_branch")"
+    [[ -n "$branch_slug" ]] || branch_slug="branch"
+    echo "${branch_slug}--${task_slug}"
+    return 0
+  fi
+  echo "$task_slug"
 }
 
 task_scope_for_id() {
   local task_id="${1:-}"
+  local task_branch="${2:-}"
   if [[ -z "$task_id" ]]; then
     echo ""
     return 0
   fi
 
-  local task_slug
-  task_slug="$(sanitize "$task_id")"
-  [[ -n "$task_slug" ]] || task_slug="task"
-  echo "task-$task_slug"
+  local ident_slug
+  ident_slug="$(task_identity_slug "$task_id" "$task_branch")"
+  [[ -n "$ident_slug" ]] || ident_slug="task"
+  echo "task-$ident_slug"
 }
 
 lock_meta_path_for_task() {
   local task_id="${1:-}"
+  local task_branch="${2:-}"
   [[ -n "$task_id" && "$task_id" != "N/A" ]] || return 1
 
-  local task_slug
+  local ident_slug task_slug candidate
+  ident_slug="$(task_identity_slug "$task_id" "$task_branch")"
   task_slug="$(sanitize "$task_id")"
   [[ -n "$task_slug" ]] || task_slug="$task_id"
-  echo "$LOCK_DIR/task-${task_slug}.lock"
+
+  if [[ -n "$task_branch" ]]; then
+    echo "$LOCK_DIR/task-${ident_slug}.lock"
+    return 0
+  fi
+
+  # Legacy single-id lock path.
+  candidate="$LOCK_DIR/task-${task_slug}.lock"
+  if [[ -f "$candidate" ]]; then
+    echo "$candidate"
+    return 0
+  fi
+
+  # Branch-qualified lock path fallback; return a unique match only.
+  local matches=()
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    matches+=("$path")
+  done < <(find "$LOCK_DIR" -maxdepth 1 -type f -name "task-*--${task_slug}.lock" 2>/dev/null | sort)
+
+  if [[ "${#matches[@]}" -eq 1 ]]; then
+    echo "${matches[0]}"
+    return 0
+  fi
+
+  if [[ "${#matches[@]}" -gt 1 ]]; then
+    return 2
+  fi
+
+  echo "$candidate"
+}
+
+resolve_lock_meta_path_or_die() {
+  local task_id="${1:-}"
+  local task_branch="${2:-}"
+  local context="${3:-task command}"
+  local lock_file=""
+  local rc=0
+  lock_file="$(lock_meta_path_for_task "$task_id" "$task_branch")" || rc=$?
+  case "$rc" in
+    0) ;;
+    2)
+      die "Ambiguous task id across branches for ${context}: task=$task_id (pass --branch)"
+      ;;
+    *)
+      die "Invalid task id for lock: $task_id"
+      ;;
+  esac
+  echo "$lock_file"
 }
 
 cmd_task_lock() {
@@ -735,18 +978,37 @@ cmd_task_lock() {
 
   local agent="${1:-}"
   local task_id="${2:-}"
+  shift 2 || true
+  local task_branch=""
   local scope
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task lock <agent> <task_id>"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
+      *)
+        die "Unknown task lock option: $1"
+        ;;
+    esac
+    shift || true
+  done
+
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task lock <agent> <task_id> [--branch <name>]"
 
   require_agent_worktree_context
   initialize_task_state
 
-  scope="$(task_scope_for_id "$task_id")"
+  scope="$(task_scope_for_id "$task_id" "$task_branch")"
 
   local lock_file
-  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
-  [[ -n "$lock_file" ]] || die "Invalid task id for lock: $task_id"
+  lock_file="$(resolve_lock_meta_path_or_die "$task_id" "$task_branch" "task lock")"
   if [[ -f "$lock_file" ]]; then
     local owner existing_task created
     owner="$(read_field "$lock_file" "owner")"
@@ -755,22 +1017,25 @@ cmd_task_lock() {
     die "Lock exists: task=$task_id owner=$owner lock_task=$existing_task created_at=$created"
   fi
 
-  local now branch worktree
+  local now branch worktree task_key
   now="$(timestamp_utc)"
   branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
   worktree="$REPO_ROOT"
+  task_key="$(task_identity_key "$task_id" "$task_branch")"
 
   cat > "$lock_file" <<LOCK_META
 owner=$agent
 scope=$scope
 task_id=$task_id
+task_branch=$task_branch
+task_key=$task_key
 branch=$branch
 worktree=$worktree
 created_at=$now
 heartbeat_at=$now
 LOCK_META
 
-  echo "Locked: task=$task_id owner=$agent scope=$scope"
+  echo "Locked: task=$task_id branch=${task_branch:-N/A} owner=$agent scope=$scope"
 }
 
 cmd_task_unlock() {
@@ -778,22 +1043,42 @@ cmd_task_unlock() {
 
   local agent="${1:-}"
   local task_id="${2:-}"
+  shift 2 || true
+  local task_branch=""
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task unlock <agent> <task_id>"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
+      *)
+        die "Unknown task unlock option: $1"
+        ;;
+    esac
+    shift || true
+  done
+
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task unlock <agent> <task_id> [--branch <name>]"
 
   require_agent_worktree_context
   initialize_task_state
 
   local lock_file
-  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
-  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
+  lock_file="$(resolve_lock_meta_path_or_die "$task_id" "$task_branch" "task unlock")"
+  [[ -f "$lock_file" ]] || die "No lock: task=$task_id"
 
   local owner
   owner="$(read_field "$lock_file" "owner")"
   [[ "$owner" == "$agent" ]] || die "Unlock denied: task=$task_id owner=$owner requested_by=$agent"
 
   rm -f "$lock_file"
-  echo "Unlocked: task=$task_id by=$agent"
+  echo "Unlocked: task=$task_id branch=${task_branch:-N/A} by=$agent"
 }
 
 cmd_task_heartbeat() {
@@ -801,15 +1086,35 @@ cmd_task_heartbeat() {
 
   local agent="${1:-}"
   local task_id="${2:-}"
+  shift 2 || true
+  local task_branch=""
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task heartbeat <agent> <task_id>"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
+      *)
+        die "Unknown task heartbeat option: $1"
+        ;;
+    esac
+    shift || true
+  done
+
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task heartbeat <agent> <task_id> [--branch <name>]"
 
   require_agent_worktree_context
   initialize_task_state
 
   local lock_file
-  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
-  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
+  lock_file="$(resolve_lock_meta_path_or_die "$task_id" "$task_branch" "task heartbeat")"
+  [[ -f "$lock_file" ]] || die "No lock: task=$task_id"
 
   local owner now
   owner="$(read_field "$lock_file" "owner")"
@@ -819,7 +1124,7 @@ cmd_task_heartbeat() {
   awk -F'=' -v now="$now" 'BEGIN{OFS="="} $1=="heartbeat_at"{$2=now} {print}' "$lock_file" > "$lock_file.tmp"
   mv "$lock_file.tmp" "$lock_file"
 
-  echo "Heartbeat updated: task=$task_id owner=$agent at=$now"
+  echo "Heartbeat updated: task=$task_id branch=${task_branch:-N/A} owner=$agent at=$now"
 }
 
 cmd_task_update() {
@@ -829,18 +1134,39 @@ cmd_task_update() {
   local task_id="${2:-}"
   local status="${3:-}"
   shift 3 || true
-  local summary="${*:-}"
+  local task_branch=""
+  local -a summary_parts=()
+  local summary=""
 
-  [[ -n "$agent" && -n "$task_id" && -n "$status" && -n "$summary" ]] || die "Usage: codex-tasks task update <agent> <task_id> <status> <summary>"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
+      *)
+        summary_parts+=("$1")
+        ;;
+    esac
+    shift || true
+  done
+
+  summary="$(trim "${summary_parts[*]:-}")"
+  [[ -n "$agent" && -n "$task_id" && -n "$status" && -n "$summary" ]] || die "Usage: codex-tasks task update <agent> <task_id> <status> <summary> [--branch <name>]"
   is_valid_status "$status" || die "Invalid status: $status"
 
   require_agent_worktree_context
   initialize_task_state
 
-  update_todo_status "$task_id" "$status"
+  update_todo_status "$task_id" "$status" "$task_branch"
   append_update_log "$agent" "$task_id" "$status" "$summary"
 
-  echo "Update logged: task=$task_id status=$status"
+  echo "Update logged: task=$task_id branch=${task_branch:-N/A} status=$status"
 }
 
 merge_task_branch_into_primary() {
@@ -1043,8 +1369,9 @@ cmd_task_complete() {
   local task_id="${2:-}"
   shift 2 || true
 
+  local task_branch=""
   local scope
-  scope="$(task_scope_for_id "$task_id")"
+  scope="$(task_scope_for_id "$task_id" "$task_branch")"
   local summary=""
   local trigger_label="task_done"
   local auto_run_start=1
@@ -1070,6 +1397,15 @@ cmd_task_complete() {
         [[ $# -gt 0 ]] || die "Missing value for --merge-strategy"
         merge_strategy="$1"
         ;;
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
       *)
         die "Unknown task complete option: $1"
         ;;
@@ -1077,7 +1413,7 @@ cmd_task_complete() {
     shift || true
   done
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task complete <agent> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task complete <agent> <task_id> [--branch <name>] [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]"
   case "$merge_strategy" in
     ff-only|rebase-then-ff) ;;
     *)
@@ -1089,12 +1425,20 @@ cmd_task_complete() {
   initialize_task_state
 
   local lock_file
-  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
-  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
+  lock_file="$(resolve_lock_meta_path_or_die "$task_id" "$task_branch" "task complete")"
+  [[ -f "$lock_file" ]] || die "No lock: task=$task_id"
 
-  local owner lock_task
+  local owner lock_task lock_task_branch
   owner="$(read_field "$lock_file" "owner")"
   lock_task="$(read_field "$lock_file" "task_id")"
+  lock_task_branch="$(read_field "$lock_file" "task_branch")"
+  if [[ -n "$task_branch" && -n "$lock_task_branch" && "$task_branch" != "$lock_task_branch" ]]; then
+    die "Complete denied: task branch mismatch requested=$task_branch lock_branch=$lock_task_branch"
+  fi
+  if [[ -z "$task_branch" ]]; then
+    task_branch="$lock_task_branch"
+  fi
+  scope="$(task_scope_for_id "$task_id" "$task_branch")"
   [[ "$owner" == "$agent" ]] || die "Complete denied: task=$task_id owner=$owner requested_by=$agent"
   [[ "$lock_task" == "$task_id" ]] || die "Complete denied: task=$task_id lock_task=$lock_task requested_task=$task_id"
 
@@ -1111,7 +1455,7 @@ cmd_task_complete() {
     done <<< "$tracked_changes"
   fi
 
-  task_status="$(task_status_for_id "$task_id" || true)"
+  task_status="$(task_status_for_id "$task_id" "$task_branch" || true)"
   [[ -n "$task_status" ]] || die "Task not found in TODO board: $task_id"
   case "$task_status" in
     DONE|완료|Complete|complete) ;;
@@ -1127,7 +1471,7 @@ cmd_task_complete() {
   fi
 
   append_update_log "$agent" "$task_id" "DONE" "$log_summary"
-  echo "Completion prerequisites satisfied: task=$task_id owner=$agent status=$task_status"
+  echo "Completion prerequisites satisfied: task=$task_id branch=${task_branch:-N/A} owner=$agent status=$task_status"
 
   local branch_name primary_repo scheduler_bin primary_team_bin repo_root_phys team_bin_phys team_bin_dir
   local merge_worktree_path merge_lock_dir merge_lock_timeout complete_worktree_parent
@@ -1158,6 +1502,9 @@ cmd_task_complete() {
       )
     )"
   fi
+  if [[ -n "$task_branch" ]]; then
+    complete_base_branch="$task_branch"
+  fi
   merge_worktree_path="$(merge_worktree_path_for_base_branch "$primary_repo" "$complete_base_branch" "$complete_worktree_parent")"
 
   if [[ -x "$TEAM_BIN" ]]; then
@@ -1186,10 +1533,10 @@ cmd_task_complete() {
   trap - EXIT
 
   rm -f "$lock_file"
-  echo "Unlocked: task=$task_id by=$agent"
+  echo "Unlocked: task=$task_id branch=${task_branch:-N/A} by=$agent"
 
   remove_completed_worktree_and_branch "$primary_repo" "$REPO_ROOT" "$branch_name"
-  remove_pid_metadata_for_task "$task_id"
+  remove_pid_metadata_for_task "$task_id" "$task_branch"
 
   if [[ "$auto_run_start" -eq 1 ]]; then
     local -a run_cmd=("$scheduler_bin" --repo "$primary_repo" --state-dir "$STATE_DIR")
@@ -1205,7 +1552,7 @@ cmd_task_complete() {
     )
   fi
 
-  echo "Task completion flow finished: task=$task_id owner=$agent scope=$scope"
+  echo "Task completion flow finished: task=$task_id branch=${task_branch:-N/A} owner=$agent scope=$scope"
 }
 
 cmd_worktree_create() {
@@ -1215,12 +1562,13 @@ cmd_worktree_create() {
   local task_id="${2:-}"
   local base_branch="${3:-$BASE_BRANCH}"
   local parent_dir="${4:-$WORKTREE_PARENT_DIR}"
+  local task_branch="${5:-}"
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks worktree create <agent> <task_id> [base_branch] [parent_dir]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks worktree create <agent> <task_id> [base_branch] [parent_dir] [task_branch]"
 
   local branch_name worktree_path shared_state
-  branch_name="$(branch_name_for "$agent" "$task_id")"
-  worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir")"
+  branch_name="$(branch_name_for "$agent" "$task_id" "$task_branch")"
+  worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir" "$task_branch")"
   shared_state="$(shared_state_dir_for "$parent_dir")"
 
   echo "Created worktree: $worktree_path"
@@ -1236,20 +1584,20 @@ cmd_worktree_start() {
   local base_branch="${3:-$BASE_BRANCH}"
   local parent_dir="${4:-$WORKTREE_PARENT_DIR}"
   local summary="${5:-Starting ${task_id}}"
+  local task_branch="${6:-}"
   local scope
 
-  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks worktree start <agent> <task_id> [base_branch] [parent_dir] [summary]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks worktree start <agent> <task_id> [base_branch] [parent_dir] [summary] [task_branch]"
 
-  local branch_name worktree_path shared_state lock_file lock_owner lock_task task_slug
+  local branch_name worktree_path shared_state lock_file lock_owner lock_task lock_branch lock_ident_slug
   local -a cli_base
 
-  branch_name="$(branch_name_for "$agent" "$task_id")"
-  worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir")"
+  branch_name="$(branch_name_for "$agent" "$task_id" "$task_branch")"
+  worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir" "$task_branch")"
   shared_state="${AI_STATE_DIR:-$(shared_state_dir_for "$parent_dir")}"
-  scope="$(task_scope_for_id "$task_id")"
-  task_slug="$(sanitize "$task_id")"
-  [[ -n "$task_slug" ]] || die "Invalid task id for lock: $task_id"
-  lock_file="${shared_state}/locks/task-${task_slug}.lock"
+  scope="$(task_scope_for_id "$task_id" "$task_branch")"
+  lock_ident_slug="$(task_identity_slug "$task_id" "$task_branch")"
+  lock_file="${shared_state}/locks/task-${lock_ident_slug}.lock"
 
   cli_base=("$TEAM_BIN" --repo "$worktree_path" --state-dir "$shared_state")
   if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
@@ -1261,19 +1609,29 @@ cmd_worktree_start() {
   if [[ -f "$lock_file" ]]; then
     lock_owner="$(read_field "$lock_file" "owner")"
     lock_task="$(read_field "$lock_file" "task_id")"
-    if [[ "$lock_owner" != "$agent" || "$lock_task" != "$task_id" ]]; then
+    lock_branch="$(read_field "$lock_file" "task_branch")"
+    if [[ "$lock_owner" != "$agent" || "$lock_task" != "$task_id" || "$lock_branch" != "$task_branch" ]]; then
       die "Lock conflict: task=$task_id owner=$lock_owner lock_task=$lock_task"
     fi
     echo "Lock already held: task=$task_id owner=$agent"
   else
-    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$task_id")
+    if [[ -n "$task_branch" ]]; then
+      (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$task_id" --branch "$task_branch")
+    else
+      (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$task_id")
+    fi
   fi
 
-  (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary")
+  if [[ -n "$task_branch" ]]; then
+    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary" --branch "$task_branch")
+  else
+    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary")
+  fi
 
   echo "Task started:"
   echo "  agent=$agent"
   echo "  task=$task_id"
+  echo "  task_branch=${task_branch:-N/A}"
   echo "  scope=$scope"
   echo "  branch=$branch_name"
   echo "  worktree=$worktree_path"
@@ -1405,6 +1763,7 @@ rollback_task_to_todo() {
   local task_id="${1:-}"
   local owner="${2:-OrchestratorSuite}"
   local reason="${3:-manual stop}"
+  local task_branch="${4:-}"
 
   [[ -n "$task_id" && "$task_id" != "N/A" ]] || {
     echo "task id missing"
@@ -1414,10 +1773,14 @@ rollback_task_to_todo() {
   ensure_todo_template
 
   local rollback_note
-  if ! rollback_note="$(todo_status_by_schema set "$task_id" "TODO" 2>&1)"; then
+  if ! rollback_note="$(todo_status_by_schema set "$task_id" "TODO" "$task_branch" 2>&1)"; then
     case "$?" in
       2)
         echo "task not found in TODO board"
+        return 2
+        ;;
+      4)
+        echo "task id is ambiguous across branches; pass branch"
         return 2
         ;;
       *)
@@ -1434,17 +1797,19 @@ rollback_task_to_todo() {
 
 task_status_for_id() {
   local task_id="${1:-}"
+  local task_branch="${2:-}"
   [[ -n "$task_id" && "$task_id" != "N/A" ]] || return 1
 
   ensure_todo_template
 
-  todo_status_by_schema get "$task_id" 2>/dev/null
+  todo_status_by_schema get "$task_id" "" "$task_branch" 2>/dev/null
 }
 
 remove_worktree_and_branch() {
   local worktree="${1:-}"
   local owner="${2:-}"
   local task_id="${3:-}"
+  local task_branch="${4:-}"
 
   if [[ -n "$worktree" && "$worktree" != "N/A" ]]; then
     if [[ "$worktree" == "$REPO_ROOT" ]]; then
@@ -1470,7 +1835,7 @@ remove_worktree_and_branch() {
 
   if [[ -n "$owner" && -n "$task_id" && "$task_id" != "N/A" ]]; then
     local branch_name
-    branch_name="$(branch_name_for "$(normalize_agent_name "$owner")" "$task_id" || true)"
+    branch_name="$(branch_name_for "$(normalize_agent_name "$owner")" "$task_id" "$task_branch" || true)"
     if [[ -n "$branch_name" ]] && git -C "$REPO_ROOT" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
       if ! git -C "$REPO_ROOT" branch -D "$branch_name" >/dev/null 2>&1; then
         echo "failed to delete branch: $branch_name"
@@ -1484,16 +1849,18 @@ remove_worktree_and_branch() {
 
 apply_actions_for_record() {
   local task_id="${1:-}"
-  local owner="${2:-}"
-  local scope="${3:-}"
-  local state="${4:-}"
-  local pid="${5:-}"
-  local pid_alive="${6:-0}"
-  local pid_file="${7:-}"
-  local lock_file="${8:-}"
-  local worktree="${9:-}"
-  local reason="${10:-manual stop}"
-  local skip_done_rollback="${11:-0}"
+  local task_branch="${2:-}"
+  local task_key="${3:-}"
+  local owner="${4:-}"
+  local scope="${5:-}"
+  local state="${6:-}"
+  local pid="${7:-}"
+  local pid_alive="${8:-0}"
+  local pid_file="${9:-}"
+  local lock_file="${10:-}"
+  local worktree="${11:-}"
+  local reason="${12:-manual stop}"
+  local skip_done_rollback="${13:-0}"
   local failed=0
 
   local tmux_session=""
@@ -1503,7 +1870,7 @@ apply_actions_for_record() {
     launch_label="$(read_field "$pid_file" "launch_label")"
   fi
 
-  echo "- task=$task_id owner=${owner:-N/A} scope=${scope:-N/A} state=$state"
+  echo "- task=$task_id branch=${task_branch:-N/A} key=${task_key:-N/A} owner=${owner:-N/A} scope=${scope:-N/A} state=$state"
 
   if [[ -n "$pid_file" && "$pid_alive" == "1" ]]; then
     if terminate_pid "$pid"; then
@@ -1552,7 +1919,7 @@ apply_actions_for_record() {
   local skip_rollback=0
   if [[ "$skip_done_rollback" == "1" ]]; then
     local task_status_raw task_status_upper
-    task_status_raw="$(task_status_for_id "$task_id" 2>/dev/null || true)"
+    task_status_raw="$(task_status_for_id "$task_id" "$task_branch" 2>/dev/null || true)"
     task_status_upper="$(printf '%s' "$task_status_raw" | tr '[:lower:]' '[:upper:]')"
     if [[ "$task_status_upper" == "DONE" ]]; then
       echo "  [SKIP] TODO rollback skipped: task status is DONE"
@@ -1562,7 +1929,7 @@ apply_actions_for_record() {
 
   if [[ "$skip_rollback" -eq 0 ]]; then
     local rollback_note
-    if rollback_note="$(rollback_task_to_todo "$task_id" "${owner:-OrchestratorSuite}" "$reason" 2>&1)"; then
+    if rollback_note="$(rollback_task_to_todo "$task_id" "${owner:-OrchestratorSuite}" "$reason" "$task_branch" 2>&1)"; then
       echo "  [OK] TODO rollback: $rollback_note"
     else
       case "$?" in
@@ -1578,7 +1945,7 @@ apply_actions_for_record() {
   fi
 
   local cleanup_note
-  if cleanup_note="$(remove_worktree_and_branch "$worktree" "$owner" "$task_id" 2>&1)"; then
+  if cleanup_note="$(remove_worktree_and_branch "$worktree" "$owner" "$task_id" "$task_branch" 2>&1)"; then
     echo "  [OK] worktree/branch cleanup: ${cleanup_note:-done}"
   else
     echo "  [ERROR] worktree/branch cleanup failed: $cleanup_note"
@@ -1619,8 +1986,8 @@ for line in raw.splitlines():
     if not line.strip():
         continue
     cols = line.split("\t")
-    cols += [""] * max(0, 12 - len(cols))
-    cols = cols[:12]
+    cols += [""] * max(0, 14 - len(cols))
+    cols = cols[:14]
     cols = [c if c else placeholder for c in cols]
     out.append("\t".join(cols))
 print("\n".join(out))
@@ -1640,10 +2007,12 @@ PY
     echo "Mode: APPLY"
   fi
 
-  while IFS=$'\t' read -r key task_id owner scope state pid pid_alive pid_file lock_file worktree tmux_session worktree_exists; do
+  while IFS=$'\t' read -r key task_id task_branch task_key owner scope state pid pid_alive pid_file lock_file worktree tmux_session worktree_exists; do
     [[ -n "${key:-}" ]] || continue
 
     [[ "$task_id" == "__EMPTY__" ]] && task_id=""
+    [[ "$task_branch" == "__EMPTY__" ]] && task_branch=""
+    [[ "$task_key" == "__EMPTY__" ]] && task_key=""
     [[ "$owner" == "__EMPTY__" ]] && owner=""
     [[ "$scope" == "__EMPTY__" ]] && scope=""
     [[ "$state" == "__EMPTY__" ]] && state=""
@@ -1654,13 +2023,13 @@ PY
     [[ "$worktree" == "__EMPTY__" ]] && worktree=""
 
     if [[ "$apply" -eq 0 ]]; then
-      echo "- task=$task_id owner=${owner:-N/A} scope=${scope:-N/A} state=$state"
+      echo "- task=$task_id branch=${task_branch:-N/A} key=${task_key:-N/A} owner=${owner:-N/A} scope=${scope:-N/A} state=$state"
       echo "  [PLAN] terminate pid (if alive), remove lock, rollback TODO->TODO, remove worktree+branch, remove pid metadata"
       success=$((success + 1))
       continue
     fi
 
-    if apply_actions_for_record "$task_id" "$owner" "$scope" "$state" "$pid" "$pid_alive" "$pid_file" "$lock_file" "$worktree" "$reason_text" "$skip_done_rollback"; then
+    if apply_actions_for_record "$task_id" "$task_branch" "$task_key" "$owner" "$scope" "$state" "$pid" "$pid_alive" "$pid_file" "$lock_file" "$worktree" "$reason_text" "$skip_done_rollback"; then
       success=$((success + 1))
     else
       failed=$((failed + 1))
@@ -1677,6 +2046,7 @@ cmd_task_stop() {
 
   local target_mode=""
   local target_task=""
+  local target_branch=""
   local reason="requested by operator"
   local apply=0
 
@@ -1688,6 +2058,15 @@ cmd_task_stop() {
         [[ -z "$target_mode" ]] || die "Use only one of --task/--all"
         target_mode="task"
         target_task="$1"
+        ;;
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        target_branch="$1"
+        ;;
+      --branch=*)
+        target_branch="${1#--branch=}"
+        [[ -n "$target_branch" ]] || die "Missing value for --branch"
         ;;
       --all)
         [[ -z "$target_mode" ]] || die "Use only one of --task/--all"
@@ -1709,10 +2088,18 @@ cmd_task_stop() {
   done
 
   [[ -n "$target_mode" ]] || die "task stop requires one target: --task <id> | --all"
+  if [[ -n "$target_branch" && "$target_mode" != "task" ]]; then
+    die "task stop --branch requires --task"
+  fi
 
   local -a cmd=(select-stop --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --format tsv)
   case "$target_mode" in
-    task) cmd+=(--task "$target_task") ;;
+    task)
+      cmd+=(--task "$target_task")
+      if [[ -n "$target_branch" ]]; then
+        cmd+=(--branch "$target_branch")
+      fi
+      ;;
     all) cmd+=(--all) ;;
   esac
   if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
@@ -1764,9 +2151,19 @@ cmd_task_auto_cleanup_exit() {
   local expected_pid="${2:-}"
   shift 2 || true
 
+  local task_branch=""
   local reason="worker exited"
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --branch)
+        shift || true
+        [[ $# -gt 0 ]] || die "Missing value for --branch"
+        task_branch="$1"
+        ;;
+      --branch=*)
+        task_branch="${1#--branch=}"
+        [[ -n "$task_branch" ]] || die "Missing value for --branch"
+        ;;
       --reason)
         shift || true
         [[ $# -gt 0 ]] || die "Missing value for --reason"
@@ -1779,11 +2176,11 @@ cmd_task_auto_cleanup_exit() {
     shift || true
   done
 
-  [[ -n "$task_id" ]] || die "Usage: codex-tasks task auto-cleanup-exit <task_id> <expected_pid> [--reason <text>]"
+  [[ -n "$task_id" ]] || die "Usage: codex-tasks task auto-cleanup-exit <task_id> <expected_pid> [--branch <name>] [--reason <text>]"
   [[ "$expected_pid" =~ ^[0-9]+$ ]] || die "task auto-cleanup-exit requires numeric expected_pid"
 
   local pid_meta
-  pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
+  pid_meta="$(resolve_pid_meta_path_or_die "$task_id" "$task_branch" "task auto-cleanup-exit")"
   if [[ -z "$pid_meta" || ! -f "$pid_meta" ]]; then
     echo "[AUTO-CLEANUP] no pid metadata for task=$task_id"
     return 0
@@ -1797,6 +2194,9 @@ cmd_task_auto_cleanup_exit() {
   fi
 
   local -a cmd=(select-stop --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --task "$task_id" --format tsv)
+  if [[ -n "$task_branch" ]]; then
+    cmd+=(--branch "$task_branch")
+  fi
   if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
     cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
@@ -1808,17 +2208,22 @@ cmd_task_auto_cleanup_exit() {
     owner="$(read_field "$pid_meta" "owner")"
     scope="$(read_field "$pid_meta" "scope")"
     if [[ -z "$scope" ]]; then
-      scope="$(task_scope_for_id "$task_id")"
+      scope="$(task_scope_for_id "$task_id" "$task_branch")"
     fi
     worktree="$(read_field "$pid_meta" "worktree")"
     tmux_session="$(read_field "$pid_meta" "tmux_session")"
-    lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+    if [[ -z "$task_branch" ]]; then
+      task_branch="$(read_field "$pid_meta" "task_branch")"
+    fi
+    lock_file="$(lock_meta_path_for_task "$task_id" "$task_branch" || true)"
+    local task_key
+    task_key="$(task_identity_key "$task_id" "$task_branch")"
     worktree_exists=0
     if [[ -n "$worktree" && -d "$worktree" ]]; then
       worktree_exists=1
     fi
-    selected_tsv="$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$task_id" "$task_id" "$owner" "$scope" "FINALIZING_EXITED" "$current_pid" "0" "$pid_meta" "$lock_file" "$worktree" "$tmux_session" "$worktree_exists")"
+    selected_tsv="$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$task_key" "$task_id" "$task_branch" "$task_key" "$owner" "$scope" "FINALIZING_EXITED" "$current_pid" "0" "$pid_meta" "$lock_file" "$worktree" "$tmux_session" "$worktree_exists")"
   fi
 
   run_selected_actions "$selected_tsv" "task-auto-cleanup-exit" "$reason" 1 1
@@ -1868,20 +2273,69 @@ cmd_task_emergency_stop() {
 
 pid_meta_path_for_task() {
   local task_id="${1:-}"
+  local task_branch="${2:-}"
   [[ -n "$task_id" ]] || return 1
 
-  local task_slug
+  local ident_slug task_slug candidate
+  ident_slug="$(task_identity_slug "$task_id" "$task_branch")"
   task_slug="$(sanitize "$task_id")"
   [[ -n "$task_slug" ]] || task_slug="$task_id"
-  echo "$ORCH_DIR/${task_slug}.pid"
+
+  if [[ -n "$task_branch" ]]; then
+    echo "$ORCH_DIR/${ident_slug}.pid"
+    return 0
+  fi
+
+  candidate="$ORCH_DIR/${task_slug}.pid"
+  if [[ -f "$candidate" ]]; then
+    echo "$candidate"
+    return 0
+  fi
+
+  local matches=()
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    matches+=("$path")
+  done < <(find "$ORCH_DIR" -maxdepth 1 -type f -name "*--${task_slug}.pid" 2>/dev/null | sort)
+
+  if [[ "${#matches[@]}" -eq 1 ]]; then
+    echo "${matches[0]}"
+    return 0
+  fi
+
+  if [[ "${#matches[@]}" -gt 1 ]]; then
+    return 2
+  fi
+
+  echo "$candidate"
+}
+
+resolve_pid_meta_path_or_die() {
+  local task_id="${1:-}"
+  local task_branch="${2:-}"
+  local context="${3:-task command}"
+  local pid_meta=""
+  local rc=0
+  pid_meta="$(pid_meta_path_for_task "$task_id" "$task_branch")" || rc=$?
+  case "$rc" in
+    0) ;;
+    2)
+      die "Ambiguous task id across branches for ${context}: task=$task_id (pass --branch)"
+      ;;
+    *)
+      die "Invalid task id for pid metadata: $task_id"
+      ;;
+  esac
+  echo "$pid_meta"
 }
 
 remove_pid_metadata_for_task() {
   local task_id="${1:-}"
+  local task_branch="${2:-}"
   [[ -n "$task_id" ]] || return 0
 
   local pid_meta
-  pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
+  pid_meta="$(pid_meta_path_for_task "$task_id" "$task_branch" || true)"
   [[ -n "$pid_meta" ]] || return 0
 
   if [[ -f "$pid_meta" ]]; then
@@ -1979,7 +2433,8 @@ build_codex_worker_prompt() {
   local goal_summary="${9:-}"
   local in_scope_summary="${10:-}"
   local acceptance_summary="${11:-}"
-  local rules_file rendered_rules worker_cli_bin worker_cli_cmd
+  local task_branch="${12:-}"
+  local rules_file rendered_rules worker_cli_bin worker_cli_cmd branch_flag
   local spec_path_display
 
   if [[ -n "${SCRIPT_DIR:-}" ]]; then
@@ -2003,6 +2458,12 @@ build_codex_worker_prompt() {
   rendered_rules="${rendered_rules//__STATE_DIR__/$STATE_DIR}"
   rendered_rules="${rendered_rules//__AGENT__/$agent}"
   rendered_rules="${rendered_rules//__TASK_ID__/$task_id}"
+  rendered_rules="${rendered_rules//__TASK_BRANCH__/$task_branch}"
+  branch_flag=""
+  if [[ -n "$task_branch" ]]; then
+    branch_flag=" --branch \"$task_branch\""
+  fi
+  rendered_rules="${rendered_rules//__TASK_BRANCH_FLAG__/$branch_flag}"
   rendered_rules="${rendered_rules//__SCOPE__/$scope}"
 
   spec_path_display="${spec_path:-N/A}"
@@ -2010,6 +2471,7 @@ build_codex_worker_prompt() {
 
   cat <<PROMPT
 Task assignment: ${task_id} (${task_title})
+Task branch: ${task_branch:-N/A}
 Owner: ${owner}
 Scope: ${scope}
 Trigger: ${trigger}
@@ -2085,14 +2547,15 @@ has_codex_json_flag() {
 
 spawn_exit_cleanup_watcher() {
   local task_id="${1:-}"
-  local expected_pid="${2:-}"
-  local reason="${3:-worker exited}"
+  local task_branch="${2:-}"
+  local expected_pid="${3:-}"
+  local reason="${4:-worker exited}"
   [[ -n "$task_id" && "$expected_pid" =~ ^[0-9]+$ ]] || return 1
 
   local logs_dir task_slug watcher_log cleanup_cmd_str watcher_script watcher_pid
   logs_dir="$ORCH_DIR/logs"
   mkdir -p "$logs_dir"
-  task_slug="$(sanitize "$task_id")"
+  task_slug="$(task_identity_slug "$task_id" "$task_branch")"
   [[ -n "$task_slug" ]] || task_slug="task"
   watcher_log="$logs_dir/watch-${task_slug}-$(date -u +%Y%m%dT%H%M%SZ).log"
 
@@ -2100,7 +2563,11 @@ spawn_exit_cleanup_watcher() {
   if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
     cleanup_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
   fi
-  cleanup_cmd+=(task auto-cleanup-exit "$task_id" "$expected_pid" --reason "$reason")
+  if [[ -n "$task_branch" ]]; then
+    cleanup_cmd+=(task auto-cleanup-exit "$task_id" "$expected_pid" --branch "$task_branch" --reason "$reason")
+  else
+    cleanup_cmd+=(task auto-cleanup-exit "$task_id" "$expected_pid" --reason "$reason")
+  fi
   cleanup_cmd_str="$(join_shell_words "${cleanup_cmd[@]}")"
   watcher_script="while kill -0 ${expected_pid} >/dev/null 2>&1; do sleep 1; done; ${cleanup_cmd_str}"
 
@@ -2111,23 +2578,24 @@ spawn_exit_cleanup_watcher() {
 
 launch_codex_tmux_worker() {
   local task_id="${1:-}"
-  local task_title="${2:-}"
-  local owner="${3:-}"
-  local scope="${4:-}"
-  local agent="${5:-}"
-  local trigger="${6:-manual}"
-  local worktree_path="${7:-}"
-  local spec_path="${8:-}"
-  local goal_summary="${9:-}"
-  local in_scope_summary="${10:-}"
-  local acceptance_summary="${11:-}"
+  local task_branch="${2:-}"
+  local task_title="${3:-}"
+  local owner="${4:-}"
+  local scope="${5:-}"
+  local agent="${6:-}"
+  local trigger="${7:-manual}"
+  local worktree_path="${8:-}"
+  local spec_path="${9:-}"
+  local goal_summary="${10:-}"
+  local in_scope_summary="${11:-}"
+  local acceptance_summary="${12:-}"
 
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
   command -v tmux >/dev/null 2>&1 || die "tmux command not found. Install tmux or use --no-launch."
 
-  local pid_meta logs_dir log_file pid started_at prompt primary_repo session_name task_slug
-  pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
+  local pid_meta logs_dir log_file pid started_at prompt primary_repo session_name task_slug task_key
+  pid_meta="$(pid_meta_path_for_task "$task_id" "$task_branch" || true)"
   [[ -n "$pid_meta" ]] || {
     echo "[ERROR] Failed to resolve pid metadata path for task=$task_id"
     return 1
@@ -2186,7 +2654,7 @@ launch_codex_tmux_worker() {
     codex_flags+=(--json)
   fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$task_branch")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -2200,7 +2668,7 @@ launch_codex_tmux_worker() {
   fi
   codex_cmd+=("$prompt")
 
-  task_slug="$(sanitize "$task_id")"
+  task_slug="$(task_identity_slug "$task_id" "$task_branch")"
   [[ -n "$task_slug" ]] || task_slug="task"
   session_name="codex-tasks-${task_slug}-$(date -u +%Y%m%d%H%M%S)-$$"
 
@@ -2240,10 +2708,13 @@ launch_codex_tmux_worker() {
     return 1
   fi
 
+  task_key="$(task_identity_key "$task_id" "$task_branch")"
   started_at="$(timestamp_utc)"
   if ! cat > "$pid_meta" <<PID_META
 pid=$pid
 task_id=$task_id
+task_branch=$task_branch
+task_key=$task_key
 owner=$owner
 scope=$scope
 worktree=$worktree_path
@@ -2262,7 +2733,7 @@ PID_META
 
   local watcher_pid watcher_reason
   watcher_reason="worker exited (backend=tmux)"
-  watcher_pid="$(spawn_exit_cleanup_watcher "$task_id" "$pid" "$watcher_reason" || true)"
+  watcher_pid="$(spawn_exit_cleanup_watcher "$task_id" "$task_branch" "$pid" "$watcher_reason" || true)"
   if [[ ! "$watcher_pid" =~ ^[0-9]+$ ]]; then
     echo "[ERROR] Failed to launch cleanup watcher: task=$task_id owner=$owner session=$session_name"
     kill_tmux_session_if_any "$session_name" >/dev/null 2>&1 || true
@@ -2270,27 +2741,28 @@ PID_META
     return 1
   fi
 
-  echo "Launched codex worker: task=$task_id owner=$owner pid=$pid session=$session_name watcher=$watcher_pid log=$log_file"
+  echo "Launched codex worker: task=$task_id branch=${task_branch:-N/A} owner=$owner pid=$pid session=$session_name watcher=$watcher_pid log=$log_file"
 }
 
 launch_codex_exec_worker() {
   local task_id="${1:-}"
-  local task_title="${2:-}"
-  local owner="${3:-}"
-  local scope="${4:-}"
-  local agent="${5:-}"
-  local trigger="${6:-manual}"
-  local worktree_path="${7:-}"
-  local spec_path="${8:-}"
-  local goal_summary="${9:-}"
-  local in_scope_summary="${10:-}"
-  local acceptance_summary="${11:-}"
+  local task_branch="${2:-}"
+  local task_title="${3:-}"
+  local owner="${4:-}"
+  local scope="${5:-}"
+  local agent="${6:-}"
+  local trigger="${7:-manual}"
+  local worktree_path="${8:-}"
+  local spec_path="${9:-}"
+  local goal_summary="${10:-}"
+  local in_scope_summary="${11:-}"
+  local acceptance_summary="${12:-}"
 
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
 
-  local pid_meta logs_dir log_file pid started_at prompt primary_repo
-  pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
+  local pid_meta logs_dir log_file pid started_at prompt primary_repo task_key
+  pid_meta="$(pid_meta_path_for_task "$task_id" "$task_branch" || true)"
   [[ -n "$pid_meta" ]] || {
     echo "[ERROR] Failed to resolve pid metadata path for task=$task_id"
     return 1
@@ -2349,7 +2821,7 @@ launch_codex_exec_worker() {
     codex_flags+=(--color always)
   fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$task_branch")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -2382,10 +2854,13 @@ launch_codex_exec_worker() {
     return 1
   fi
 
+  task_key="$(task_identity_key "$task_id" "$task_branch")"
   started_at="$(timestamp_utc)"
   if ! cat > "$pid_meta" <<PID_META
 pid=$pid
 task_id=$task_id
+task_branch=$task_branch
+task_key=$task_key
 owner=$owner
 scope=$scope
 worktree=$worktree_path
@@ -2402,20 +2877,21 @@ PID_META
     return 1
   fi
 
-  echo "Launched codex worker: task=$task_id owner=$owner pid=$pid log=$log_file"
+  echo "Launched codex worker: task=$task_id branch=${task_branch:-N/A} owner=$owner pid=$pid log=$log_file"
 }
 
 rollback_start_attempt() {
   local task_id="${1:-}"
-  local owner="${2:-}"
-  local branch_name="${3:-}"
-  local branch_existed_before="${4:-0}"
-  local worktree_existed_before="${5:-0}"
-  local preferred_worktree_path="${6:-}"
-  local reason="${7:-start failed}"
+  local task_branch="${2:-}"
+  local owner="${3:-}"
+  local branch_name="${4:-}"
+  local branch_existed_before="${5:-0}"
+  local worktree_existed_before="${6:-0}"
+  local preferred_worktree_path="${7:-}"
+  local reason="${8:-start failed}"
 
   local pid_meta pid tmux_session launch_label
-  pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
+  pid_meta="$(pid_meta_path_for_task "$task_id" "$task_branch" || true)"
 
   if [[ -n "$pid_meta" && -f "$pid_meta" ]]; then
     pid="$(read_field "$pid_meta" "pid")"
@@ -2434,7 +2910,7 @@ rollback_start_attempt() {
   fi
 
   local lock_file lock_owner lock_task
-  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  lock_file="$(lock_meta_path_for_task "$task_id" "$task_branch" || true)"
   if [[ -n "$lock_file" && -f "$lock_file" ]]; then
     lock_owner="$(read_field "$lock_file" "owner")"
     lock_task="$(read_field "$lock_file" "task_id")"
@@ -2443,7 +2919,7 @@ rollback_start_attempt() {
     fi
   fi
 
-  rollback_task_to_todo "$task_id" "$owner" "$reason" >/dev/null 2>&1 || true
+  rollback_task_to_todo "$task_id" "$owner" "$reason" "$task_branch" >/dev/null 2>&1 || true
 
   local current_worktree=""
   if [[ -n "$branch_name" ]]; then
@@ -2484,16 +2960,25 @@ print(f"Trigger: {payload.get('trigger', 'manual')}")
 print(f"State dir: {payload.get('state_dir', '')}")
 print(f"Running locks: {len(running)}")
 for item in running:
-    print(f"  - scope={item.get('scope', '')} agent={item.get('owner', '')} task={item.get('task_id', '')}")
+    task_id = item.get('task_id', '')
+    task_branch = item.get('task_branch', '')
+    task_label = f"{task_branch}:{task_id}" if task_branch else task_id
+    print(f"  - scope={item.get('scope', '')} agent={item.get('owner', '')} task={task_label}")
 
 print(f"Ready tasks: {len(ready)}")
 for item in ready:
-    print(f"  - {item.get('task_id', '')} | deps={item.get('deps', '')} | {item.get('title', '')}")
+    task_id = item.get('task_id', '')
+    task_branch = item.get('task_branch', '')
+    task_label = f"{task_branch}:{task_id}" if task_branch else task_id
+    print(f"  - {task_label} | deps={item.get('deps', '')} | base={item.get('base_branch', '')} | {item.get('title', '')}")
 
 print(f"Excluded tasks: {len(excluded)}")
 for item in excluded:
+    task_id = item.get('task_id', '')
+    task_branch = item.get('task_branch', '')
+    task_label = f"{task_branch}:{task_id}" if task_branch else task_id
     print(
-        f"  - {item.get('task_id', '')} | reason={item.get('reason', '')} source={item.get('source', '')}"
+        f"  - {task_label} | reason={item.get('reason', '')} source={item.get('source', '')}"
     )
 PY
 }
@@ -2615,7 +3100,19 @@ cmd_run_start() {
   ready_tsv="$("$PYTHON_BIN" "$PY_ENGINE" "${ready_cmd[@]}" --format tsv)"
 
   local started_count=0
-  while IFS=$'\t' read -r task_id task_title agent_name scope deps status spec_path goal_summary in_scope_summary acceptance_summary; do
+  while IFS=$'\t' read -r task_id task_branch task_base_branch task_title agent_name scope deps status spec_path goal_summary in_scope_summary acceptance_summary; do
+    [[ "$task_id" == "__EMPTY__" ]] && task_id=""
+    [[ "$task_branch" == "__EMPTY__" ]] && task_branch=""
+    [[ "$task_base_branch" == "__EMPTY__" ]] && task_base_branch=""
+    [[ "$task_title" == "__EMPTY__" ]] && task_title=""
+    [[ "$agent_name" == "__EMPTY__" ]] && agent_name=""
+    [[ "$scope" == "__EMPTY__" ]] && scope=""
+    [[ "$deps" == "__EMPTY__" ]] && deps=""
+    [[ "$status" == "__EMPTY__" ]] && status=""
+    [[ "$spec_path" == "__EMPTY__" ]] && spec_path=""
+    [[ "$goal_summary" == "__EMPTY__" ]] && goal_summary=""
+    [[ "$in_scope_summary" == "__EMPTY__" ]] && in_scope_summary=""
+    [[ "$acceptance_summary" == "__EMPTY__" ]] && acceptance_summary=""
     [[ -n "${task_id:-}" ]] || continue
 
     local agent summary start_output worktree_path
@@ -2626,8 +3123,8 @@ cmd_run_start() {
 
     agent="$(normalize_agent_name "$agent_name")"
     summary="Auto-start by scheduler (${trigger})"
-    branch_name="$(branch_name_for "$agent" "$task_id" || true)"
-    expected_worktree_path="$(default_worktree_path_for "$REPO_NAME" "$agent" "$task_id" "$WORKTREE_PARENT_DIR")"
+    branch_name="$(branch_name_for "$agent" "$task_id" "$task_branch" || true)"
+    expected_worktree_path="$(default_worktree_path_for "$REPO_NAME" "$agent" "$task_id" "$WORKTREE_PARENT_DIR" "$task_branch")"
 
     if [[ -n "$branch_name" ]] && git -C "$REPO_ROOT" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
       branch_existed_before=1
@@ -2637,7 +3134,7 @@ cmd_run_start() {
     fi
 
     if [[ "$dry_run" -eq 1 ]]; then
-      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
+      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $task_id $task_base_branch $WORKTREE_PARENT_DIR '$summary' '$task_branch'"
       started_count=$((started_count + 1))
       continue
     fi
@@ -2646,12 +3143,12 @@ cmd_run_start() {
     if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
       start_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
     fi
-    start_cmd+=(worktree start "$agent" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
+    start_cmd+=(worktree start "$agent" "$task_id" "$task_base_branch" "$WORKTREE_PARENT_DIR" "$summary" "$task_branch")
 
     if ! start_output="$(AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}" 2>&1)"; then
       echo "$start_output"
       echo "[ERROR] Failed to start task=$task_id agent=$agent_name"
-      rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
+      rollback_start_attempt "$task_id" "$task_branch" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
       continue
     fi
 
@@ -2660,24 +3157,24 @@ cmd_run_start() {
     worktree_path="$(printf '%s\n' "$start_output" | awk -F'=' '/^worktree=/{print substr($0,10)}' | tail -n1)"
     if [[ -z "$worktree_path" || ! -d "$worktree_path" ]]; then
       echo "[ERROR] Missing worktree path after start: task=$task_id agent=$agent_name"
-      rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
+      rollback_start_attempt "$task_id" "$task_branch" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
       continue
     fi
 
     if [[ "$no_launch" -eq 0 ]]; then
       local launch_ok=0
       if [[ "$launch_backend" == "tmux" ]]; then
-        if launch_codex_tmux_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_tmux_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       else
-        if launch_codex_exec_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_exec_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       fi
       if [[ "$launch_ok" -eq 0 ]]; then
         echo "[ERROR] Failed to launch codex worker: task=$task_id agent=$agent_name"
-        rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
+        rollback_start_attempt "$task_id" "$task_branch" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
         continue
       fi
     fi

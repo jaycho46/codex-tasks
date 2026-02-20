@@ -30,9 +30,10 @@ codex_flags = "--full-auto"
 
 [todo]
 id_col = 2
-title_col = 3
-deps_col = 4
-status_col = 6
+branch_col = 3
+title_col = 4
+deps_col = 5
+status_col = 7
 gate_regex = "`(G[0-9]+ \\\\([^)]+\\\\))`"
 done_keywords = ["DONE", "완료", "complete"] # inline comment
 """.strip()
@@ -42,6 +43,7 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
         self.assertEqual(parsed["repo"]["base_branch"], "main")
         self.assertEqual(parsed["runtime"]["max_start"], 2)
         self.assertFalse(parsed["runtime"]["auto_no_launch"])
+        self.assertEqual(parsed["todo"]["branch_col"], 3)
         self.assertEqual(parsed["todo"]["done_keywords"][1], "완료")
 
     def test_load_config_bootstraps_and_expands_repo_placeholder(self) -> None:

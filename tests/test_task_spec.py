@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "py"))
 
-from task_spec import evaluate_task_spec, task_spec_rel_path
+from task_spec import evaluate_task_spec, task_spec_rel_path, task_spec_rel_path_for_branch
 
 
 class TaskSpecTests(unittest.TestCase):
@@ -140,6 +140,38 @@ class TaskSpecTests(unittest.TestCase):
             self.assertTrue(result["valid"])
             self.assertEqual(result["spec_path"], str(spec_path))
             self.assertEqual(result["spec_rel_path"], str(spec_path))
+
+    def test_branch_scoped_spec_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td)
+            spec_rel = task_spec_rel_path_for_branch("001", "release/1.0")
+            spec_path = repo_root / spec_rel
+            spec_path.parent.mkdir(parents=True, exist_ok=True)
+            spec_path.write_text(
+                "\n".join(
+                    [
+                        "# Task Spec: 001",
+                        "",
+                        "## Goal",
+                        "Goal text",
+                        "",
+                        "## In Scope",
+                        "- scope item",
+                        "",
+                        "## Acceptance Criteria",
+                        "- [ ] done",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = evaluate_task_spec(repo_root, "001", task_branch="release/1.0")
+            self.assertTrue(result["exists"])
+            self.assertTrue(result["valid"])
+            self.assertEqual(
+                result["spec_rel_path"], ".codex-tasks/planning/specs/release/1.0/001.md"
+            )
 
 
 if __name__ == "__main__":

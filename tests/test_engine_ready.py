@@ -127,7 +127,7 @@ class EngineReadyTests(unittest.TestCase):
             self.assertIn("task_board", payload)
 
             todo_text = (repo_root / ".codex-tasks" / "planning" / "TODO.md").read_text(encoding="utf-8")
-            self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
+            self.assertIn("| ID | Branch | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
     def test_status_bootstrap_rewrites_legacy_empty_todo_template(self) -> None:
@@ -155,7 +155,7 @@ class EngineReadyTests(unittest.TestCase):
             self.assertIn("task_board", payload)
 
             todo_text = (repo_root / ".codex-tasks" / "planning" / "TODO.md").read_text(encoding="utf-8")
-            self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
+            self.assertIn("| ID | Branch | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
     def test_ready_selection_excludes_active_and_unready_deps(self) -> None:

@@ -15,6 +15,14 @@ STALE_STATES = {
 }
 
 
+def _task_key(task_id: str, task_branch: str) -> str:
+    tid = (task_id or "").strip()
+    branch = (task_branch or "").strip()
+    if branch:
+        return f"{branch}::{tid}"
+    return tid
+
+
 def is_active_state(state: str) -> bool:
     return state in ACTIVE_STATES
 
@@ -56,6 +64,8 @@ def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
         if not pid_meta.is_file():
             continue
         task_id = read_field(pid_meta, "task_id")
+        task_branch = read_field(pid_meta, "task_branch")
+        task_key = read_field(pid_meta, "task_key")
         owner = read_field(pid_meta, "owner")
         scope = read_field(pid_meta, "scope")
         pid = read_field(pid_meta, "pid")
@@ -64,11 +74,15 @@ def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
         launch_backend = read_field(pid_meta, "launch_backend")
         log_file = read_field(pid_meta, "log_file")
 
-        key = task_id if task_id else f"PIDONLY:{pid_meta.stem}"
+        key = task_key if task_key else _task_key(task_id, task_branch)
+        if not key:
+            key = f"PIDONLY:{pid_meta.stem}"
         rows.append(
             {
                 "key": key,
                 "task_id": task_id,
+                "task_branch": task_branch,
+                "task_key": key,
                 "owner": owner,
                 "scope": scope,
                 "pid": pid,
@@ -90,15 +104,21 @@ def load_lock_inventory(lock_dir: str | Path) -> list[dict[str, Any]]:
 
     for lock_meta in sorted(base.glob("*.lock")):
         task_id = read_field(lock_meta, "task_id")
+        task_branch = read_field(lock_meta, "task_branch")
+        task_key = read_field(lock_meta, "task_key")
         owner = read_field(lock_meta, "owner")
         scope = read_field(lock_meta, "scope")
         worktree = read_field(lock_meta, "worktree")
 
-        key = task_id if task_id else f"LOCKONLY:{scope}:{owner}:{lock_meta.name}"
+        key = task_key if task_key else _task_key(task_id, task_branch)
+        if not key:
+            key = f"LOCKONLY:{scope}:{owner}:{lock_meta.name}"
         rows.append(
             {
                 "key": key,
                 "task_id": task_id,
+                "task_branch": task_branch,
+                "task_key": key,
                 "owner": owner,
                 "scope": scope,
                 "lock_file": str(lock_meta),
@@ -124,6 +144,8 @@ def classify_records(pid_rows: list[dict[str, Any]], lock_rows: list[dict[str, A
         lock_row = combined.get("lock", {})
 
         task_id = pid_row.get("task_id") or lock_row.get("task_id") or key
+        task_branch = pid_row.get("task_branch") or lock_row.get("task_branch") or ""
+        task_key = pid_row.get("task_key") or lock_row.get("task_key") or _task_key(str(task_id), str(task_branch)) or key
         owner = pid_row.get("owner") or lock_row.get("owner") or ""
         scope = pid_row.get("scope") or lock_row.get("scope") or ""
         worktree = pid_row.get("worktree") or lock_row.get("worktree") or ""
@@ -162,8 +184,10 @@ def classify_records(pid_rows: list[dict[str, Any]], lock_rows: list[dict[str, A
 
         records.append(
             {
-                "key": key,
+                "key": task_key,
                 "task_id": task_id,
+                "task_branch": task_branch,
+                "task_key": task_key,
                 "owner": owner,
                 "scope": scope,
                 "state": state,

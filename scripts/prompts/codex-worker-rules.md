@@ -17,9 +17,9 @@ Execution rules:
 - Keep work scoped to the assigned task title and task scope.
 - Do not manually edit lock/pid metadata files.
 - Report progress with a specific summary:
-  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" IN_PROGRESS "progress update"
+  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" IN_PROGRESS "progress update"__TASK_BRANCH_FLAG__
 - After final verification, mark the task DONE with a specific summary:
-  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" DONE "what was delivered"
+  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" DONE "what was delivered"__TASK_BRANCH_FLAG__
 - Commit message rules:
   - Deliverable commits: <type>: <summary> (__TASK_ID__) where <type> is one of feat|fix|refactor|docs|test|chore
 - Commit tracked deliverable changes before task complete (if any):
@@ -27,7 +27,7 @@ Execution rules:
 - Do not create empty marker commits just to signal DONE.
 - Use task complete as the final command to perform merge and worktree cleanup.
 - When complete, finish with a meaningful summary (or omit --summary to use the default completion log text):
-  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task complete "__AGENT__" "__TASK_ID__" --summary "what was delivered"
+  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task complete "__AGENT__" "__TASK_ID__" --summary "what was delivered"__TASK_BRANCH_FLAG__
 - If task complete hits merge/rebase conflicts, resolve them as much as possible and rerun task complete.
 - Only if it still fails after resolution attempts, report BLOCKED:
-  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" BLOCKED "merge conflict: <reason>"
+  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" BLOCKED "merge conflict: <reason>"__TASK_BRANCH_FLAG__

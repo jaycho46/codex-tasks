@@ -9,6 +9,12 @@ class TodoError(RuntimeError):
     pass
 
 
+_GATE_DEP_RE = re.compile(r"G\d+")
+_LEGACY_TASK_DEP_RE = re.compile(r"T\d+-\d+")
+_NUMERIC_TASK_DEP_RE = re.compile(r"\d{3}")
+_QUALIFIED_TASK_DEP_RE = re.compile(r"([^:\s]+):(\d{3})")
+
+
 def _field(cols: list[str], col_no: int) -> str:
     idx = col_no - 1
     if idx < 0 or idx >= len(cols):
@@ -49,6 +55,54 @@ def _parse_markdown_row(line: str) -> list[str] | None:
     return ["", *cells, ""]
 
 
+def _resolve_columns(lines: list[str], schema: dict[str, Any]) -> dict[str, int]:
+    resolved = {
+        "id_col": int(schema["id_col"]),
+        "branch_col": int(schema.get("branch_col", 0) or 0),
+        "title_col": int(schema["title_col"]),
+        "deps_col": int(schema["deps_col"]),
+        "status_col": int(schema["status_col"]),
+    }
+
+    for line in lines:
+        cols = _parse_markdown_row(line)
+        if cols is None:
+            continue
+
+        header_map: dict[str, int] = {}
+        for col_no in range(1, len(cols) + 1):
+            label = _field(cols, col_no).strip().lower()
+            if not label:
+                continue
+            if label not in header_map:
+                header_map[label] = col_no
+
+        if "id" not in header_map or "status" not in header_map:
+            continue
+
+        if "title" in header_map:
+            resolved["title_col"] = header_map["title"]
+        if "deps" in header_map:
+            resolved["deps_col"] = header_map["deps"]
+        if "branch" in header_map:
+            resolved["branch_col"] = header_map["branch"]
+        else:
+            resolved["branch_col"] = 0
+        resolved["id_col"] = header_map["id"]
+        resolved["status_col"] = header_map["status"]
+        break
+
+    return resolved
+
+
+def make_task_key(task_id: str, task_branch: str = "") -> str:
+    tid = (task_id or "").strip()
+    branch = (task_branch or "").strip()
+    if branch:
+        return f"{branch}::{tid}"
+    return tid
+
+
 def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict[str, str]], dict[str, str]]:
     path = Path(todo_file)
     if not path.exists():
@@ -57,10 +111,12 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
     lines = path.read_text(encoding="utf-8").splitlines()
     tasks: list[dict[str, str]] = []
 
-    id_col = int(schema["id_col"])
-    title_col = int(schema["title_col"])
-    deps_col = int(schema["deps_col"])
-    status_col = int(schema["status_col"])
+    cols = _resolve_columns(lines, schema)
+    id_col = int(cols["id_col"])
+    branch_col = int(cols["branch_col"])
+    title_col = int(cols["title_col"])
+    deps_col = int(cols["deps_col"])
+    status_col = int(cols["status_col"])
 
     for line in lines:
         cols = _parse_markdown_row(line)
@@ -68,6 +124,7 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
             continue
 
         task_id = _field(cols, id_col)
+        task_branch = _field(cols, branch_col) if branch_col > 0 else ""
         title = _field(cols, title_col)
         deps = _field(cols, deps_col)
         status = _field(cols, status_col)
@@ -78,6 +135,7 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
         tasks.append(
             {
                 "id": task_id,
+                "branch": task_branch,
                 "title": title,
                 "deps": deps,
                 "status": status,
@@ -104,10 +162,18 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
 
 
 def build_indexes(tasks: list[dict[str, str]]) -> dict[str, str]:
-    return {task["id"]: task["status"] for task in tasks}
+    return {
+        make_task_key(task.get("id", ""), task.get("branch", "")): task.get("status", "")
+        for task in tasks
+    }
 
 
-def deps_ready(deps: str, task_status: dict[str, str], gate_status: dict[str, str]) -> bool:
+def deps_ready(
+    deps: str,
+    task_status: dict[str, str],
+    gate_status: dict[str, str],
+    task_branch: str = "",
+) -> bool:
     raw = (deps or "").strip()
     if not raw or raw == "-":
         return True
@@ -117,13 +183,27 @@ def deps_ready(deps: str, task_status: dict[str, str], gate_status: dict[str, st
         if not dep:
             continue
 
-        if re.fullmatch(r"G\d+", dep):
+        if _GATE_DEP_RE.fullmatch(dep):
             if gate_status.get(dep, "") != "DONE":
                 return False
-        elif re.fullmatch(r"T\d+-\d+", dep):
+            continue
+
+        dep_key = ""
+        if _LEGACY_TASK_DEP_RE.fullmatch(dep):
+            dep_key = make_task_key(dep, "")
+        elif _NUMERIC_TASK_DEP_RE.fullmatch(dep):
+            dep_key = make_task_key(dep, task_branch)
+        else:
+            qualified = _QUALIFIED_TASK_DEP_RE.fullmatch(dep)
+            if qualified:
+                dep_key = make_task_key(qualified.group(2), qualified.group(1))
+            else:
+                return False
+
+        if task_status.get(dep_key, "") != "DONE":
+            # Backward compatibility: if branch-qualified lookup misses,
+            # allow plain-id lookup for legacy boards without branch metadata.
             if task_status.get(dep, "") != "DONE":
                 return False
-        else:
-            return False
 
     return True

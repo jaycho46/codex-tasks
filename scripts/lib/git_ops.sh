@@ -4,13 +4,19 @@ set -euo pipefail
 branch_name_for() {
   local agent="${1:-}"
   local task_id="${2:-}"
-  local agent_slug task_slug
+  local task_branch="${3:-}"
+  local agent_slug task_slug branch_slug
 
   [[ -n "$agent" && -n "$task_id" ]] || return 1
   agent_slug="$(sanitize "$agent")"
   task_slug="$(sanitize "$task_id")"
+  branch_slug="$(sanitize "$task_branch")"
   [[ -n "$agent_slug" && -n "$task_slug" ]] || return 1
 
+  if [[ -n "$branch_slug" ]]; then
+    echo "codex/${agent_slug}-${branch_slug}-${task_slug}"
+    return 0
+  fi
   echo "codex/${agent_slug}-${task_slug}"
 }
 
@@ -19,10 +25,16 @@ default_worktree_path_for() {
   local agent="${2:-}"
   local task_id="${3:-}"
   local parent_dir="${4:-}"
-  local agent_slug task_slug
+  local task_branch="${5:-}"
+  local agent_slug task_slug branch_slug
 
   agent_slug="$(sanitize "$agent")"
   task_slug="$(sanitize "$task_id")"
+  branch_slug="$(sanitize "$task_branch")"
+  if [[ -n "$branch_slug" ]]; then
+    echo "${parent_dir}/${repo_name}-${agent_slug}-${branch_slug}-${task_slug}"
+    return 0
+  fi
   echo "${parent_dir}/${repo_name}-${agent_slug}-${task_slug}"
 }
 
@@ -118,10 +130,11 @@ ensure_agent_worktree() {
   local task_id="${4:-}"
   local base_branch="${5:-main}"
   local parent_dir="${6:-}"
+  local task_branch="${7:-}"
 
   local branch_name worktree_path existing_path
-  branch_name="$(branch_name_for "$agent" "$task_id")"
-  worktree_path="$(default_worktree_path_for "$repo_name" "$agent" "$task_id" "$parent_dir")"
+  branch_name="$(branch_name_for "$agent" "$task_id" "$task_branch")"
+  worktree_path="$(default_worktree_path_for "$repo_name" "$agent" "$task_id" "$parent_dir" "$task_branch")"
   existing_path="$(find_worktree_for_branch "$repo_root" "$branch_name" || true)"
 
   mkdir -p "$parent_dir"

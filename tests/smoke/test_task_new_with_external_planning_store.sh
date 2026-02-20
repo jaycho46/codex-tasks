@@ -31,15 +31,16 @@ OUT_INIT="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task init --gitignore 
 echo "$OUT_INIT"
 echo "$OUT_INIT" | grep -q "State dir is outside repository; skip .gitignore update:"
 
-OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new T4-901 "External planning task")"
+BASE_BRANCH="$(git -C "$REPO" symbolic-ref --quiet --short HEAD)"
+OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new 901 --branch "$BASE_BRANCH" "External planning task")"
 echo "$OUT_NEW"
-echo "$OUT_NEW" | grep -q "Added task to TODO board: T4-901"
-echo "$OUT_NEW" | grep -q "Created task: id=T4-901"
+echo "$OUT_NEW" | grep -q "Added task to TODO board: 901"
+echo "$OUT_NEW" | grep -q "Created task: branch=$BASE_BRANCH id=901"
 
 test -f "$TODO_FILE"
-grep -q "| T4-901 | External planning task | - |  | TODO |" "$TODO_FILE"
+grep -q "| 901 | $BASE_BRANCH | External planning task | - |  | TODO |" "$TODO_FILE"
 
-SPEC_FILE="$SPEC_DIR/T4-901.md"
+SPEC_FILE="$SPEC_DIR/$BASE_BRANCH/901.md"
 test -f "$SPEC_FILE"
 grep -q "^## Goal$" "$SPEC_FILE"
 grep -q "^## In Scope$" "$SPEC_FILE"
@@ -47,7 +48,7 @@ grep -q "^## Acceptance Criteria$" "$SPEC_FILE"
 
 OUT_READY="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" run start --dry-run --trigger smoke-external-planning --max-start 0)"
 echo "$OUT_READY"
-echo "$OUT_READY" | grep -q "\[DRY-RUN\].*T4-901"
+echo "$OUT_READY" | grep -q "\[DRY-RUN\].*901"
 echo "$OUT_READY" | grep -q "Started tasks: 1"
 
 if [[ -f "$REPO/TODO.md" ]]; then

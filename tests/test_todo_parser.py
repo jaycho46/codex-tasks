@@ -80,6 +80,50 @@ Gate state: `G2 (PENDING)`
             self.assertEqual(tasks[0]["deps"], "-")
             self.assertEqual(tasks[0]["status"], "TODO")
 
+    def test_branch_scoped_ids_and_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            todo_path = Path(td) / "TODO.md"
+            todo_path.write_text(
+                """
+# TODO Board
+
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| 001 | main | First | - | note | DONE |
+| 001 | release/1.0 | Second | main:001 | note | TODO |
+| 002 | release/1.0 | Third | 001 | note | TODO |
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            schema = dict(SCHEMA)
+            schema.update(
+                {
+                    "branch_col": 3,
+                    "title_col": 4,
+                    "deps_col": 5,
+                    "status_col": 7,
+                }
+            )
+
+            tasks, gates = parse_todo(todo_path, schema)
+            task_status = build_indexes(tasks)
+
+            self.assertEqual(len(tasks), 3)
+            self.assertEqual(tasks[0]["branch"], "main")
+            self.assertEqual(tasks[1]["branch"], "release/1.0")
+            self.assertEqual(task_status["main::001"], "DONE")
+            self.assertEqual(task_status["release/1.0::001"], "TODO")
+
+            self.assertTrue(
+                deps_ready("main:001", task_status, gates, task_branch="release/1.0")
+            )
+            self.assertFalse(
+                deps_ready("001", task_status, gates, task_branch="release/1.0")
+            )
+            self.assertTrue(deps_ready("001", task_status, gates, task_branch="main"))
+
 
 if __name__ == "__main__":
     unittest.main()
