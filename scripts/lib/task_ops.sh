@@ -676,27 +676,52 @@ PY
   echo "Created task: id=$new_task_id title=$summary"
 }
 
+task_scope_for_id() {
+  local task_id="${1:-}"
+  if [[ -z "$task_id" ]]; then
+    echo ""
+    return 0
+  fi
+
+  local task_slug
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || task_slug="task"
+  echo "task-$task_slug"
+}
+
+lock_meta_path_for_task() {
+  local task_id="${1:-}"
+  [[ -n "$task_id" && "$task_id" != "N/A" ]] || return 1
+
+  local task_slug
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || task_slug="$task_id"
+  echo "$LOCK_DIR/task-${task_slug}.lock"
+}
+
 cmd_task_lock() {
   load_runtime_context
 
   local agent="${1:-}"
-  local scope_raw="${2:-}"
-  local task_id="${3:-N/A}"
+  local task_id="${2:-}"
   local scope
-  scope="$(normalize_scope "$scope_raw")"
 
-  [[ -n "$agent" && -n "$scope" ]] || die "Usage: codex-tasks task lock <agent> <scope> [task_id]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task lock <agent> <task_id>"
 
   require_agent_worktree_context
   initialize_task_state
 
-  local lock_file="$LOCK_DIR/$scope.lock"
+  scope="$(task_scope_for_id "$task_id")"
+
+  local lock_file
+  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  [[ -n "$lock_file" ]] || die "Invalid task id for lock: $task_id"
   if [[ -f "$lock_file" ]]; then
     local owner existing_task created
     owner="$(read_field "$lock_file" "owner")"
     existing_task="$(read_field "$lock_file" "task_id")"
     created="$(read_field "$lock_file" "created_at")"
-    die "Lock exists: scope=$scope owner=$owner task=$existing_task created_at=$created"
+    die "Lock exists: task=$task_id owner=$owner lock_task=$existing_task created_at=$created"
   fi
 
   local now branch worktree
@@ -714,58 +739,56 @@ created_at=$now
 heartbeat_at=$now
 LOCK_META
 
-  echo "Locked: scope=$scope owner=$agent task=$task_id"
+  echo "Locked: task=$task_id owner=$agent scope=$scope"
 }
 
 cmd_task_unlock() {
   load_runtime_context
 
   local agent="${1:-}"
-  local scope_raw="${2:-}"
-  local scope
-  scope="$(normalize_scope "$scope_raw")"
+  local task_id="${2:-}"
 
-  [[ -n "$agent" && -n "$scope" ]] || die "Usage: codex-tasks task unlock <agent> <scope>"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task unlock <agent> <task_id>"
 
   require_agent_worktree_context
   initialize_task_state
 
-  local lock_file="$LOCK_DIR/$scope.lock"
-  [[ -f "$lock_file" ]] || die "No lock: scope=$scope"
+  local lock_file
+  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
 
   local owner
   owner="$(read_field "$lock_file" "owner")"
-  [[ "$owner" == "$agent" ]] || die "Unlock denied: scope=$scope owner=$owner requested_by=$agent"
+  [[ "$owner" == "$agent" ]] || die "Unlock denied: task=$task_id owner=$owner requested_by=$agent"
 
   rm -f "$lock_file"
-  echo "Unlocked: scope=$scope by=$agent"
+  echo "Unlocked: task=$task_id by=$agent"
 }
 
 cmd_task_heartbeat() {
   load_runtime_context
 
   local agent="${1:-}"
-  local scope_raw="${2:-}"
-  local scope
-  scope="$(normalize_scope "$scope_raw")"
+  local task_id="${2:-}"
 
-  [[ -n "$agent" && -n "$scope" ]] || die "Usage: codex-tasks task heartbeat <agent> <scope>"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task heartbeat <agent> <task_id>"
 
   require_agent_worktree_context
   initialize_task_state
 
-  local lock_file="$LOCK_DIR/$scope.lock"
-  [[ -f "$lock_file" ]] || die "No lock: scope=$scope"
+  local lock_file
+  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
 
   local owner now
   owner="$(read_field "$lock_file" "owner")"
-  [[ "$owner" == "$agent" ]] || die "Heartbeat denied: scope=$scope owner=$owner requested_by=$agent"
+  [[ "$owner" == "$agent" ]] || die "Heartbeat denied: task=$task_id owner=$owner requested_by=$agent"
 
   now="$(timestamp_utc)"
   awk -F'=' -v now="$now" 'BEGIN{OFS="="} $1=="heartbeat_at"{$2=now} {print}' "$lock_file" > "$lock_file.tmp"
   mv "$lock_file.tmp" "$lock_file"
 
-  echo "Heartbeat updated: scope=$scope owner=$agent at=$now"
+  echo "Heartbeat updated: task=$task_id owner=$agent at=$now"
 }
 
 cmd_task_update() {
@@ -891,12 +914,11 @@ cmd_task_complete() {
   load_runtime_context
 
   local agent="${1:-}"
-  local scope_raw="${2:-}"
-  local task_id="${3:-}"
-  shift 3 || true
+  local task_id="${2:-}"
+  shift 2 || true
 
   local scope
-  scope="$(normalize_scope "$scope_raw")"
+  scope="$(task_scope_for_id "$task_id")"
   local summary=""
   local trigger_label="task_done"
   local auto_run_start=1
@@ -929,7 +951,7 @@ cmd_task_complete() {
     shift || true
   done
 
-  [[ -n "$agent" && -n "$scope" && -n "$task_id" ]] || die "Usage: codex-tasks task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks task complete <agent> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]"
   case "$merge_strategy" in
     ff-only|rebase-then-ff) ;;
     *)
@@ -940,14 +962,15 @@ cmd_task_complete() {
   require_agent_worktree_context
   initialize_task_state
 
-  local lock_file="$LOCK_DIR/$scope.lock"
-  [[ -f "$lock_file" ]] || die "No lock: scope=$scope"
+  local lock_file
+  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  [[ -n "$lock_file" && -f "$lock_file" ]] || die "No lock: task=$task_id"
 
   local owner lock_task
   owner="$(read_field "$lock_file" "owner")"
   lock_task="$(read_field "$lock_file" "task_id")"
-  [[ "$owner" == "$agent" ]] || die "Complete denied: scope=$scope owner=$owner requested_by=$agent"
-  [[ "$lock_task" == "$task_id" ]] || die "Complete denied: scope=$scope lock_task=$lock_task requested_task=$task_id"
+  [[ "$owner" == "$agent" ]] || die "Complete denied: task=$task_id owner=$owner requested_by=$agent"
+  [[ "$lock_task" == "$task_id" ]] || die "Complete denied: task=$task_id lock_task=$lock_task requested_task=$task_id"
 
   local tracked_changes line changed_path task_status
   tracked_changes="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)"
@@ -1022,7 +1045,7 @@ cmd_task_complete() {
   merge_task_branch_into_primary "$primary_repo" "$branch_name" "$complete_base_branch" "$REPO_ROOT" "$merge_strategy"
 
   rm -f "$lock_file"
-  echo "Unlocked: scope=$scope by=$agent"
+  echo "Unlocked: task=$task_id by=$agent"
 
   remove_completed_worktree_and_branch "$primary_repo" "$REPO_ROOT" "$branch_name"
   remove_pid_metadata_for_task "$task_id"
@@ -1068,22 +1091,24 @@ cmd_worktree_start() {
   load_runtime_context
 
   local agent="${1:-}"
-  local scope="${2:-}"
-  local task_id="${3:-}"
-  local base_branch="${4:-$BASE_BRANCH}"
-  local parent_dir="${5:-$WORKTREE_PARENT_DIR}"
-  local summary="${6:-Starting ${task_id}}"
+  local task_id="${2:-}"
+  local base_branch="${3:-$BASE_BRANCH}"
+  local parent_dir="${4:-$WORKTREE_PARENT_DIR}"
+  local summary="${5:-Starting ${task_id}}"
+  local scope
 
-  [[ -n "$agent" && -n "$scope" && -n "$task_id" ]] || die "Usage: codex-tasks worktree start <agent> <scope> <task_id> [base_branch] [parent_dir] [summary]"
+  [[ -n "$agent" && -n "$task_id" ]] || die "Usage: codex-tasks worktree start <agent> <task_id> [base_branch] [parent_dir] [summary]"
 
-  local branch_name worktree_path shared_state scope_key lock_file lock_owner lock_task
+  local branch_name worktree_path shared_state lock_file lock_owner lock_task task_slug
   local -a cli_base
 
   branch_name="$(branch_name_for "$agent" "$task_id")"
   worktree_path="$(ensure_agent_worktree "$REPO_ROOT" "$REPO_NAME" "$agent" "$task_id" "$base_branch" "$parent_dir")"
   shared_state="${AI_STATE_DIR:-$(shared_state_dir_for "$parent_dir")}"
-  scope_key="$(normalize_scope "$scope")"
-  lock_file="${shared_state}/locks/${scope_key}.lock"
+  scope="$(task_scope_for_id "$task_id")"
+  task_slug="$(sanitize "$task_id")"
+  [[ -n "$task_slug" ]] || die "Invalid task id for lock: $task_id"
+  lock_file="${shared_state}/locks/task-${task_slug}.lock"
 
   cli_base=("$TEAM_BIN" --repo "$worktree_path" --state-dir "$shared_state")
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
@@ -1096,11 +1121,11 @@ cmd_worktree_start() {
     lock_owner="$(read_field "$lock_file" "owner")"
     lock_task="$(read_field "$lock_file" "task_id")"
     if [[ "$lock_owner" != "$agent" || "$lock_task" != "$task_id" ]]; then
-      die "Lock conflict: scope=$scope owner=$lock_owner task=$lock_task"
+      die "Lock conflict: task=$task_id owner=$lock_owner lock_task=$lock_task"
     fi
-    echo "Lock already held: scope=$scope owner=$agent task=$task_id"
+    echo "Lock already held: task=$task_id owner=$agent"
   else
-    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$scope" "$task_id")
+    (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task lock "$agent" "$task_id")
   fi
 
   (cd "$worktree_path" && AI_STATE_DIR="$shared_state" "${cli_base[@]}" task update "$agent" "$task_id" "IN_PROGRESS" "$summary")
@@ -1641,12 +1666,12 @@ cmd_task_auto_cleanup_exit() {
     local owner scope worktree tmux_session lock_file worktree_exists
     owner="$(read_field "$pid_meta" "owner")"
     scope="$(read_field "$pid_meta" "scope")"
+    if [[ -z "$scope" ]]; then
+      scope="$(task_scope_for_id "$task_id")"
+    fi
     worktree="$(read_field "$pid_meta" "worktree")"
     tmux_session="$(read_field "$pid_meta" "tmux_session")"
-    lock_file=""
-    if [[ -n "$scope" ]]; then
-      lock_file="$LOCK_DIR/$(normalize_scope "$scope").lock"
-    fi
+    lock_file="$(lock_meta_path_for_task "$task_id" || true)"
     worktree_exists=0
     if [[ -n "$worktree" && -d "$worktree" ]]; then
       worktree_exists=1
@@ -2245,12 +2270,11 @@ PID_META
 rollback_start_attempt() {
   local task_id="${1:-}"
   local owner="${2:-}"
-  local scope="${3:-}"
-  local branch_name="${4:-}"
-  local branch_existed_before="${5:-0}"
-  local worktree_existed_before="${6:-0}"
-  local preferred_worktree_path="${7:-}"
-  local reason="${8:-start failed}"
+  local branch_name="${3:-}"
+  local branch_existed_before="${4:-0}"
+  local worktree_existed_before="${5:-0}"
+  local preferred_worktree_path="${6:-}"
+  local reason="${7:-start failed}"
 
   local pid_meta pid tmux_session launch_label
   pid_meta="$(pid_meta_path_for_task "$task_id" || true)"
@@ -2272,8 +2296,8 @@ rollback_start_attempt() {
   fi
 
   local lock_file lock_owner lock_task
-  lock_file="$LOCK_DIR/$(normalize_scope "$scope").lock"
-  if [[ -f "$lock_file" ]]; then
+  lock_file="$(lock_meta_path_for_task "$task_id" || true)"
+  if [[ -n "$lock_file" && -f "$lock_file" ]]; then
     lock_owner="$(read_field "$lock_file" "owner")"
     lock_task="$(read_field "$lock_file" "task_id")"
     if [[ "$lock_owner" == "$owner" && "$lock_task" == "$task_id" ]]; then
@@ -2475,7 +2499,7 @@ cmd_run_start() {
     fi
 
     if [[ "$dry_run" -eq 1 ]]; then
-      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $scope $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
+      echo "[DRY-RUN] $TEAM_BIN --repo $REPO_ROOT --state-dir $STATE_DIR worktree start $agent $task_id $BASE_BRANCH $WORKTREE_PARENT_DIR '$summary'"
       started_count=$((started_count + 1))
       continue
     fi
@@ -2484,12 +2508,12 @@ cmd_run_start() {
     if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
       start_cmd+=(--config "$TEAM_CONFIG_ARG")
     fi
-    start_cmd+=(worktree start "$agent" "$scope" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
+    start_cmd+=(worktree start "$agent" "$task_id" "$BASE_BRANCH" "$WORKTREE_PARENT_DIR" "$summary")
 
     if ! start_output="$(AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}" 2>&1)"; then
       echo "$start_output"
       echo "[ERROR] Failed to start task=$task_id agent=$agent_name"
-      rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
+      rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
       continue
     fi
 
@@ -2498,7 +2522,7 @@ cmd_run_start() {
     worktree_path="$(printf '%s\n' "$start_output" | awk -F'=' '/^worktree=/{print substr($0,10)}' | tail -n1)"
     if [[ -z "$worktree_path" || ! -d "$worktree_path" ]]; then
       echo "[ERROR] Missing worktree path after start: task=$task_id agent=$agent_name"
-      rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
+      rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
       continue
     fi
 
@@ -2515,7 +2539,7 @@ cmd_run_start() {
       fi
       if [[ "$launch_ok" -eq 0 ]]; then
         echo "[ERROR] Failed to launch codex worker: task=$task_id agent=$agent_name"
-        rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
+        rollback_start_attempt "$task_id" "$agent_name" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
         continue
       fi
     fi

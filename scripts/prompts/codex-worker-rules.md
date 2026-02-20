@@ -27,7 +27,7 @@ Execution rules:
   git add -A && git commit -m "chore: mark __TASK_ID__ done"
 - Use task complete as the final command to perform merge and worktree cleanup.
 - When complete, finish with a meaningful summary (or omit --summary to use the default completion log text):
-  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task complete "__AGENT__" "__SCOPE__" "__TASK_ID__" --summary "what was delivered"
+  __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task complete "__AGENT__" "__TASK_ID__" --summary "what was delivered"
 - If task complete hits merge/rebase conflicts, resolve them as much as possible and rerun task complete.
 - Only if it still fails after resolution attempts, report BLOCKED:
   __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" BLOCKED "merge conflict: <reason>"

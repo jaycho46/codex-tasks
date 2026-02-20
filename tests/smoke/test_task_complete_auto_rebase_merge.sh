@@ -56,7 +56,7 @@ echo "main advanced" > "$REPO/main-advance.txt"
 git -C "$REPO" add main-advance.txt
 git -C "$REPO" commit -q -m "chore: advance main during task"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t6-001 T6-001 --summary "auto rebase merge" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T6-001 --summary "auto rebase merge" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Fast-forward merge failed, attempting auto-rebase"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary after auto-rebase"

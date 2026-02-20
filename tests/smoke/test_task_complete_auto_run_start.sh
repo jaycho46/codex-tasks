@@ -84,7 +84,7 @@ git -C "$WT_A" commit -q -m "feat: complete T1-001"
 git -C "$WT_A" add TODO.md
 git -C "$WT_A" commit -q -m "chore: mark T1-001 done"
 
-COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.state" task complete AgentA task-t1-001 T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
+COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.state" task complete AgentA T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
 echo "$COMPLETE_OUT"
 
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"

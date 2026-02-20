@@ -50,7 +50,7 @@ git -C "$WT" commit -q -m "feat: complete T7-001"
 git -C "$WT" add TODO.md
 git -C "$WT" commit -q -m "chore: mark T7-001 done"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t7-001 T7-001 --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T7-001 --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T7-001"
 

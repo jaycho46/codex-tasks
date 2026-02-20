@@ -48,7 +48,7 @@ fi
 
 # Simulate task completion from agent worktree context.
 $CLI --repo "$WT_A" --state-dir "$REPO/.state" task update AgentA T1-001 DONE "done in smoke"
-$CLI --repo "$WT_A" --state-dir "$REPO/.state" task unlock AgentA task-t1-001
+$CLI --repo "$WT_A" --state-dir "$REPO/.state" task unlock AgentA T1-001
 
 # Source-of-truth for scheduler is the primary repo TODO board.
 # Simulate merge/finish by reflecting T1-001 DONE on main TODO.

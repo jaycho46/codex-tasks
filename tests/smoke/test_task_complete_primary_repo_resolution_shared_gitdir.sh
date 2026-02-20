@@ -58,7 +58,7 @@ git -C "$WT" commit -q -m "feat: deliver T8-002"
 git -C "$WT" add TODO.md
 git -C "$WT" commit -q -m "chore: mark T8-002 done"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t8-002 T8-002 --summary "shared gitdir complete flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T8-002 --summary "shared gitdir complete flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary"

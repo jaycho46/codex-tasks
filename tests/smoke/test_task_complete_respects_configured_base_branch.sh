@@ -76,7 +76,7 @@ git -C "$WT" commit -q -m "chore: mark T1-001 done"
 # User can still switch away before completion; completion must honor configured base branch.
 git -C "$REPO" checkout -q main
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t1-001 T1-001 --summary "done on release flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T1-001 --summary "done on release flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 if ! echo "$COMPLETE_OUT" | grep -q -- "-> release"; then
   echo "task complete should merge into configured base branch release"

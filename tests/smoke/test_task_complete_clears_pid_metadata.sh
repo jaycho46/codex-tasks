@@ -70,7 +70,7 @@ if [[ ! -f "$PID_META" ]]; then
   exit 1
 fi
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t3-001 T3-001 --summary \"done\" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA T3-001 --summary \"done\" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T3-001"
 echo "$COMPLETE_OUT" | grep -q "Removed pid metadata for task=T3-001"
