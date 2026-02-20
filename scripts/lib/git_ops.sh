@@ -169,12 +169,23 @@ git_common_dir_for() {
 
 primary_repo_root_for() {
   local repo_path="${1:-}"
-  local common_dir top_level
+  local common_dir top_level resolved_from_common
 
   common_dir="$(git_common_dir_for "$repo_path" || true)"
-  if [[ -n "$common_dir" && "$(basename "$common_dir")" == ".git" ]]; then
-    (cd "$common_dir/.." && pwd)
-    return 0
+  if [[ -n "$common_dir" ]]; then
+    # Some repositories (e.g. submodules / absorbed gitdirs) expose the primary
+    # worktree via git-common-dir + core.worktree. Resolve that first to avoid
+    # mistaking the current agent worktree for the primary repository.
+    resolved_from_common="$(git -C "$common_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$resolved_from_common" && -d "$resolved_from_common" ]]; then
+      (cd "$resolved_from_common" && pwd)
+      return 0
+    fi
+
+    if [[ "$(basename "$common_dir")" == ".git" ]]; then
+      (cd "$common_dir/.." && pwd)
+      return 0
+    fi
   fi
 
   top_level="$(git -C "$repo_path" rev-parse --show-toplevel 2>/dev/null)" || return 1
