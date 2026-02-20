@@ -1003,6 +1003,21 @@ cmd_task_complete() {
   primary_team_bin="$primary_repo/scripts/codex-tasks"
   repo_root_phys="$(cd "$REPO_ROOT" && pwd -P)"
   team_bin_phys=""
+  local complete_base_branch="$BASE_BRANCH"
+  local complete_base_env=""
+  local -a complete_base_ctx=( "$PYTHON_BIN" "$PY_ENGINE" paths --repo "$primary_repo" --state-dir "$STATE_DIR" --format env )
+  if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
+    complete_base_ctx+=(--config "$TEAM_CONFIG_ARG")
+  fi
+  if complete_base_env="$("${complete_base_ctx[@]}")"; then
+    complete_base_branch="$(
+      (
+        eval "$complete_base_env"
+        echo "$BASE_BRANCH"
+      )
+    )"
+  fi
+
   if [[ -x "$TEAM_BIN" ]]; then
     team_bin_dir="$(cd "$(dirname "$TEAM_BIN")" && pwd -P 2>/dev/null || true)"
     if [[ -n "$team_bin_dir" ]]; then
@@ -1020,7 +1035,7 @@ cmd_task_complete() {
     die "Unable to resolve codex-tasks binary for post-complete scheduler run."
   fi
 
-  merge_task_branch_into_primary "$primary_repo" "$branch_name" "$BASE_BRANCH" "$REPO_ROOT" "$merge_strategy"
+  merge_task_branch_into_primary "$primary_repo" "$branch_name" "$complete_base_branch" "$REPO_ROOT" "$merge_strategy"
 
   rm -f "$lock_file"
   echo "Unlocked: scope=$scope by=$agent"
