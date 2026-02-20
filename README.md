@@ -169,7 +169,7 @@ flowchart LR
 5. Completion phase (`task complete`)
 
 - Completion is accepted only when the task is `DONE`, tracked changes are committed, and lock agent/scope match.
-- `task complete` merges into base branch (default `rebase-then-ff`), clears runtime metadata, removes worktree/branch, and automatically runs the next scheduler start by default (disable with `--no-run-start`).
+- `task complete` merges into base branch (default `rebase-then-ff`) via a dedicated merge worktree, serializes concurrent merge attempts, clears runtime metadata, removes worktree/branch, and automatically runs the next scheduler start by default (disable with `--no-run-start`).
 
 Continuous loop view:
 

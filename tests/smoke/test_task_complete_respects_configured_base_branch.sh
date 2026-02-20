@@ -78,6 +78,12 @@ if ! echo "$COMPLETE_OUT" | grep -q -- "-> release"; then
   exit 1
 fi
 
+CURRENT_BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  echo "task complete should keep primary branch unchanged (expected main, got $CURRENT_BRANCH)"
+  exit 1
+fi
+
 if ! git -C "$REPO" merge-base --is-ancestor "$TASK_TIP" release; then
   echo "completion tip should be merged into release"
   exit 1

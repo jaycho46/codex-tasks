@@ -849,6 +849,7 @@ merge_task_branch_into_primary() {
   local base_branch="${3:-main}"
   local task_worktree="${4:-}"
   local merge_strategy="${5:-rebase-then-ff}"
+  local merge_worktree_path="${6:-}"
 
   [[ -n "$primary_repo" && -n "$branch_name" ]] || return 1
   case "$merge_strategy" in
@@ -858,10 +859,6 @@ merge_task_branch_into_primary() {
       ;;
   esac
 
-  if [[ -n "$(git -C "$primary_repo" status --porcelain --untracked-files=no)" ]]; then
-    die "primary repo has tracked uncommitted changes: $primary_repo"
-  fi
-
   if ! git -C "$primary_repo" rev-parse --verify "$base_branch" >/dev/null 2>&1; then
     die "Base branch not found in primary repo: $base_branch"
   fi
@@ -869,8 +866,42 @@ merge_task_branch_into_primary() {
     die "Task branch not found in primary repo: $branch_name"
   fi
 
-  if [[ "$(git -C "$primary_repo" rev-parse --abbrev-ref HEAD)" != "$base_branch" ]]; then
-    git -C "$primary_repo" checkout --quiet "$base_branch"
+  if [[ -z "$merge_worktree_path" ]]; then
+    merge_worktree_path="$(merge_worktree_path_for_base_branch "$primary_repo" "$base_branch" "$WORKTREE_PARENT_DIR")"
+  fi
+
+  local merge_repo attached_branch
+  merge_repo="$(find_worktree_for_branch "$primary_repo" "$base_branch" || true)"
+  if [[ -z "$merge_repo" ]]; then
+    mkdir -p "$(dirname "$merge_worktree_path")"
+    attached_branch="$(find_branch_for_worktree_path "$primary_repo" "$merge_worktree_path" || true)"
+    if [[ "$attached_branch" == "$base_branch" ]]; then
+      merge_repo="$merge_worktree_path"
+    elif [[ "$attached_branch" == "DETACHED" ]]; then
+      if ! git -C "$primary_repo" worktree remove --force "$merge_worktree_path" >/dev/null 2>&1; then
+        die "Failed to recycle detached merge worktree: $merge_worktree_path"
+      fi
+    elif [[ -n "$attached_branch" ]]; then
+      die "Merge worktree path already attached to $attached_branch (expected $base_branch): $merge_worktree_path"
+    fi
+
+    if [[ -z "$merge_repo" ]]; then
+      if [[ -e "$merge_worktree_path" ]]; then
+        quarantine_orphan_worktree_path "$primary_repo" "$merge_worktree_path" "$base_branch"
+      fi
+      if ! git -C "$primary_repo" worktree add --quiet "$merge_worktree_path" "$base_branch" >/dev/null 2>&1; then
+        die "Failed to create merge worktree for base branch $base_branch: $merge_worktree_path"
+      fi
+      merge_repo="$merge_worktree_path"
+    fi
+  fi
+
+  [[ -n "$merge_repo" && -d "$merge_repo" ]] || die "Merge worktree not found for base branch $base_branch"
+  if [[ "$(git -C "$merge_repo" rev-parse --abbrev-ref HEAD)" != "$base_branch" ]]; then
+    die "Merge worktree must be on $base_branch: $merge_repo"
+  fi
+  if [[ -n "$(git -C "$merge_repo" status --porcelain --untracked-files=no)" ]]; then
+    die "Merge worktree has tracked uncommitted changes: $merge_repo"
   fi
 
   if git -C "$primary_repo" merge-base --is-ancestor "$branch_name" "$base_branch"; then
@@ -878,7 +909,7 @@ merge_task_branch_into_primary() {
     return 0
   fi
 
-  if git -C "$primary_repo" merge --ff-only "$branch_name" >/dev/null 2>&1; then
+  if git -C "$merge_repo" merge --ff-only "$branch_name" >/dev/null 2>&1; then
     echo "Merged branch into primary: $branch_name -> $base_branch"
     return 0
   fi
@@ -905,10 +936,74 @@ merge_task_branch_into_primary() {
     die "Auto-rebase failed: $branch_name onto $base_branch (manual merge required)"
   fi
 
-  if ! git -C "$primary_repo" merge --ff-only "$branch_name" >/dev/null 2>&1; then
+  if ! git -C "$merge_repo" merge --ff-only "$branch_name" >/dev/null 2>&1; then
     die "Merge failed after auto-rebase: $branch_name -> $base_branch (manual merge required)"
   fi
   echo "Merged branch into primary after auto-rebase: $branch_name -> $base_branch"
+}
+
+merge_worktree_path_for_base_branch() {
+  local repo_root="${1:-}"
+  local base_branch="${2:-}"
+  local parent_dir="${3:-$WORKTREE_PARENT_DIR}"
+  local repo_name base_slug
+
+  [[ -n "$repo_root" && -n "$base_branch" && -n "$parent_dir" ]] || return 1
+  repo_name="$(basename "$repo_root")"
+  base_slug="$(sanitize "$base_branch")"
+  [[ -n "$base_slug" ]] || base_slug="base"
+  echo "${parent_dir}/.${repo_name}-merge-${base_slug}"
+}
+
+acquire_task_complete_merge_lock() {
+  local lock_dir="${1:-}"
+  local timeout_sec="${2:-300}"
+  local waited=0
+  local lock_pid
+
+  [[ -n "$lock_dir" ]] || return 1
+  if ! [[ "$timeout_sec" =~ ^[0-9]+$ ]]; then
+    timeout_sec=300
+  fi
+
+  mkdir -p "$(dirname "$lock_dir")"
+  while true; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      printf '%s\n' "$$" > "$lock_dir/pid"
+      return 0
+    fi
+
+    lock_pid=""
+    if [[ -f "$lock_dir/pid" ]]; then
+      lock_pid="$(tr -d '[:space:]' < "$lock_dir/pid" || true)"
+    fi
+
+    if [[ "$lock_pid" =~ ^[0-9]+$ ]] && kill -0 "$lock_pid" >/dev/null 2>&1; then
+      if (( waited == 0 || waited % 10 == 0 )); then
+        echo "Waiting for merge lock: $lock_dir (pid=$lock_pid)"
+      fi
+    else
+      rm -f "$lock_dir/pid" >/dev/null 2>&1 || true
+      rmdir "$lock_dir" >/dev/null 2>&1 || true
+      if (( waited == 0 || waited % 10 == 0 )); then
+        echo "Recovering stale merge lock: $lock_dir"
+      fi
+    fi
+
+    if (( waited >= timeout_sec )); then
+      die "Timed out waiting for merge lock: $lock_dir"
+    fi
+
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+release_task_complete_merge_lock() {
+  local lock_dir="${1:-}"
+  [[ -n "$lock_dir" ]] || return 0
+  rm -f "$lock_dir/pid" >/dev/null 2>&1 || true
+  rmdir "$lock_dir" >/dev/null 2>&1 || true
 }
 
 remove_completed_worktree_and_branch() {
@@ -1035,6 +1130,7 @@ cmd_task_complete() {
   echo "Completion prerequisites satisfied: task=$task_id owner=$agent status=$task_status"
 
   local branch_name primary_repo scheduler_bin primary_team_bin repo_root_phys team_bin_phys team_bin_dir
+  local merge_worktree_path merge_lock_dir merge_lock_timeout complete_worktree_parent
   branch_name="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
   primary_repo="$(primary_repo_root_for "$REPO_ROOT" || true)"
   [[ -n "$primary_repo" ]] || die "Unable to resolve primary repo from worktree: $REPO_ROOT"
@@ -1042,6 +1138,7 @@ cmd_task_complete() {
   repo_root_phys="$(cd "$REPO_ROOT" && pwd -P)"
   team_bin_phys=""
   local complete_base_branch="$BASE_BRANCH"
+  complete_worktree_parent="$WORKTREE_PARENT_DIR"
   local complete_base_env=""
   local -a complete_base_ctx=( "$PYTHON_BIN" "$PY_ENGINE" paths --repo "$primary_repo" --state-dir "$STATE_DIR" --format env )
   if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
@@ -1054,7 +1151,14 @@ cmd_task_complete() {
         echo "$BASE_BRANCH"
       )
     )"
+    complete_worktree_parent="$(
+      (
+        eval "$complete_base_env"
+        echo "$WORKTREE_PARENT_DIR"
+      )
+    )"
   fi
+  merge_worktree_path="$(merge_worktree_path_for_base_branch "$primary_repo" "$complete_base_branch" "$complete_worktree_parent")"
 
   if [[ -x "$TEAM_BIN" ]]; then
     team_bin_dir="$(cd "$(dirname "$TEAM_BIN")" && pwd -P 2>/dev/null || true)"
@@ -1073,7 +1177,13 @@ cmd_task_complete() {
     die "Unable to resolve codex-tasks binary for post-complete scheduler run."
   fi
 
-  merge_task_branch_into_primary "$primary_repo" "$branch_name" "$complete_base_branch" "$REPO_ROOT" "$merge_strategy"
+  merge_lock_dir="$ORCH_DIR/task-complete-merge.lock"
+  merge_lock_timeout="${CODEX_TASKS_COMPLETE_MERGE_LOCK_TIMEOUT_SEC:-300}"
+  acquire_task_complete_merge_lock "$merge_lock_dir" "$merge_lock_timeout"
+  trap 'release_task_complete_merge_lock "$merge_lock_dir"' EXIT
+  merge_task_branch_into_primary "$primary_repo" "$branch_name" "$complete_base_branch" "$REPO_ROOT" "$merge_strategy" "$merge_worktree_path"
+  release_task_complete_merge_lock "$merge_lock_dir"
+  trap - EXIT
 
   rm -f "$lock_file"
   echo "Unlocked: task=$task_id by=$agent"
