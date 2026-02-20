@@ -1,6 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+branch_exists_local() {
+  local repo_root="${1:-}"
+  local branch="${2:-}"
+  [[ -n "$repo_root" && -n "$branch" ]] || return 1
+  git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"
+}
+
+resolve_branch_ref() {
+  local repo_root="${1:-}"
+  local branch="${2:-}"
+  local remote_ref
+  [[ -n "$repo_root" && -n "$branch" ]] || return 1
+
+  if branch_exists_local "$repo_root" "$branch"; then
+    echo "$branch"
+    return 0
+  fi
+
+  remote_ref="$(
+    git -C "$repo_root" for-each-ref --format='%(refname)' "refs/remotes/*/$branch" \
+      | head -n1
+  )"
+  if [[ -n "$remote_ref" ]]; then
+    echo "$remote_ref"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_local_branch_from_ref() {
+  local repo_root="${1:-}"
+  local branch="${2:-}"
+  local start_ref="${3:-}"
+  [[ -n "$repo_root" && -n "$branch" && -n "$start_ref" ]] || return 1
+
+  if branch_exists_local "$repo_root" "$branch"; then
+    return 0
+  fi
+  if git -C "$repo_root" branch "$branch" "$start_ref" >/dev/null 2>&1; then
+    return 0
+  fi
+  branch_exists_local "$repo_root" "$branch"
+}
+
 branch_name_for() {
   local agent="${1:-}"
   local task_id="${2:-}"
@@ -132,7 +177,7 @@ ensure_agent_worktree() {
   local parent_dir="${6:-}"
   local task_branch="${7:-}"
 
-  local branch_name worktree_path existing_path
+  local branch_name worktree_path existing_path base_ref
   branch_name="$(branch_name_for "$agent" "$task_id" "$task_branch")"
   worktree_path="$(default_worktree_path_for "$repo_name" "$agent" "$task_id" "$parent_dir" "$task_branch")"
   existing_path="$(find_worktree_for_branch "$repo_root" "$branch_name" || true)"
@@ -148,10 +193,33 @@ ensure_agent_worktree() {
     quarantine_orphan_worktree_path "$repo_root" "$worktree_path" "$branch_name"
   fi
 
+  # Branch-column tasks can target a branch that does not exist yet.
+  # Bootstrap it from the configured base branch before creating the
+  # per-agent codex/* work branch.
+  if [[ -n "$task_branch" && "$base_branch" == "$task_branch" ]]; then
+    if ! resolve_branch_ref "$repo_root" "$task_branch" >/dev/null 2>&1; then
+      local fallback_base seed_ref
+      fallback_base="${BASE_BRANCH:-main}"
+      [[ -n "$fallback_base" ]] || fallback_base="main"
+      [[ "$fallback_base" != "$task_branch" ]] || die "Missing task branch and fallback base is identical: $task_branch"
+
+      seed_ref="$(resolve_branch_ref "$repo_root" "$fallback_base" || true)"
+      [[ -n "$seed_ref" ]] || die "Configured base branch not found for bootstrap: $fallback_base"
+
+      if ! ensure_local_branch_from_ref "$repo_root" "$task_branch" "$seed_ref"; then
+        die "Failed to create missing task base branch: $task_branch (from $fallback_base)"
+      fi
+      echo "Created missing task base branch: $task_branch (from $fallback_base)" >&2
+    fi
+  fi
+
+  base_ref="$(resolve_branch_ref "$repo_root" "$base_branch" || true)"
+  [[ -n "$base_ref" ]] || die "Base branch not found in local/remote refs: $base_branch"
+
   if git -C "$repo_root" rev-parse --verify "$branch_name" >/dev/null 2>&1; then
     git -C "$repo_root" worktree add --quiet "$worktree_path" "$branch_name" >/dev/null
   else
-    git -C "$repo_root" worktree add --quiet -b "$branch_name" "$worktree_path" "$base_branch" >/dev/null
+    git -C "$repo_root" worktree add --quiet -b "$branch_name" "$worktree_path" "$base_ref" >/dev/null
   fi
 
   echo "$worktree_path"

@@ -36,7 +36,7 @@ git -C "$REPO" worktree add -q -b codex/agenta-t1-001 "$WT" "$BASE_BRANCH"
 
 OUT="$($CLI --repo "$WT" --state-dir "$REPO/.codex-tasks" --config "$REPO/.codex-tasks/orchestrator.toml" task update AgentA T1-001 IN_PROGRESS 'schema status update')"
 echo "$OUT"
-echo "$OUT" | grep -q "Update logged: task=T1-001 status=IN_PROGRESS"
+echo "$OUT" | grep -q "Update logged: task=T1-001 branch=N/A status=IN_PROGRESS"
 
 grep -q "| T1-001 | Schema status task | AgentA | - | IN_PROGRESS | keep note |" "$REPO/.codex-tasks/planning/TODO.md"
 

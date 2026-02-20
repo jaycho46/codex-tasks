@@ -26,6 +26,7 @@ smoke_tests=(
   tests/smoke/test_run_start_rollback_kills_codex_on_launch_error.sh
   tests/smoke/test_run_start_orphan_worktree_path_recovery.sh
   tests/smoke/test_run_start_scenario.sh
+  tests/smoke/test_run_start_creates_missing_task_branch.sh
   tests/smoke/test_task_new_creates_todo_and_spec.sh
   tests/smoke/test_task_new_with_external_planning_store.sh
   tests/smoke/test_task_init_gitignore.sh
