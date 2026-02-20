@@ -90,7 +90,7 @@ Because `.codex-tasks/` is usually in `.gitignore`, planning updates stay local 
 
 ### Optional: keep planning files out of Git
 
-If task-planning commits cause too much churn, you can move planning artifacts
+If task-planning Git changes cause too much churn, you can move planning artifacts
 outside the repository and keep only code changes in Git.
 
 Configure `.codex-tasks/orchestrator.toml`:
@@ -106,7 +106,7 @@ Notes:
 
 - `todo_file` and `spec_dir` now support absolute or repo-relative paths.
 - keep runtime state (`state_dir`) ignored in Git; `codex-tasks init --gitignore yes` handles this when state is inside the repo.
-- this avoids planning commits, but all participants must point to the same shared paths to collaborate on one queue.
+- this keeps planning artifacts outside the repo, but all participants must point to the same shared paths to collaborate on one queue.
 
 ### 3) In terminal, orchestrate execution
 
