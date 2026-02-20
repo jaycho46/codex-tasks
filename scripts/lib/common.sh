@@ -37,14 +37,9 @@ read_field() {
   awk -F'=' -v k="$key" '$1 == k {sub(/^[[:space:]]+/, "", $2); print $2; exit}' "$file"
 }
 
-owner_key() {
-  local owner="${1:-}"
-  echo "$owner" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+//g'
-}
-
 normalize_agent_name() {
-  local owner="${1:-}"
-  echo "$owner" | sed -E 's/[[:space:]]+//g'
+  local agent="${1:-}"
+  echo "$agent" | sed -E 's/[[:space:]]+//g'
 }
 
 ensure_updates_file() {

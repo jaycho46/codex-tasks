@@ -14,9 +14,9 @@ git -C "$REPO" init -q
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-001 | Ready task | AgentA | - | | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-001 | Ready task | - | | TODO |
 EOF
 
 "$CLI" --repo "$REPO" task scaffold-specs >/dev/null

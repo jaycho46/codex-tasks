@@ -23,9 +23,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T7-001 | Meaningful summary title | AgentA | - | summary fallback check | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T7-001 | Meaningful summary title | - | summary fallback check | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -50,7 +50,7 @@ git -C "$WT" commit -q -m "feat: complete T7-001"
 git -C "$WT" add TODO.md
 git -C "$WT" commit -q -m "chore: mark T7-001 done"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA app-shell T7-001 --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t7-001 T7-001 --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T7-001"
 
@@ -63,6 +63,6 @@ if git -C "$REPO" log --pretty=%s | grep -q '^task(T7-001):'; then
   exit 1
 fi
 
-grep -q "| T7-001 | Meaningful summary title | AgentA | - | summary fallback check | DONE |" "$REPO/TODO.md"
+grep -q "| T7-001 | Meaningful summary title | - | summary fallback check | DONE |" "$REPO/TODO.md"
 
 echo "task complete no-auto-commit smoke test passed"

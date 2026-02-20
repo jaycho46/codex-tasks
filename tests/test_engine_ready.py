@@ -28,15 +28,15 @@ def _init_git_repo(repo_root: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=repo_root, check=True)
 
 
-def _write_todo(repo_root: Path, rows: list[tuple[str, str, str, str, str, str]]) -> None:
+def _write_todo(repo_root: Path, rows: list[tuple[str, str, str, str, str]]) -> None:
     table = [
         "# TODO Board",
         "",
-        "| ID | Title | Owner | Deps | Notes | Status |",
-        "|---|---|---|---|---|---|",
+        "| ID | Title | Deps | Notes | Status |",
+        "|---|---|---|---|---|",
     ]
     for row in rows:
-        table.append(f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]} | {row[5]} |")
+        table.append(f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]} |")
     (repo_root / "TODO.md").write_text("\n".join(table) + "\n", encoding="utf-8")
 
 
@@ -125,7 +125,7 @@ class EngineReadyTests(unittest.TestCase):
             self.assertIn("task_board", payload)
 
             todo_text = (repo_root / "TODO.md").read_text(encoding="utf-8")
-            self.assertIn("| ID | Title | Owner | Deps | Notes | Status |", todo_text)
+            self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
     def test_status_bootstrap_rewrites_legacy_empty_todo_template(self) -> None:
@@ -151,10 +151,10 @@ class EngineReadyTests(unittest.TestCase):
             self.assertIn("task_board", payload)
 
             todo_text = (repo_root / "TODO.md").read_text(encoding="utf-8")
-            self.assertIn("| ID | Title | Owner | Deps | Notes | Status |", todo_text)
+            self.assertIn("| ID | Title | Deps | Notes | Status |", todo_text)
             self.assertNotIn("| Area | ID | Title | Owner | Deps | Notes | Status |", todo_text)
 
-    def test_ready_selection_excludes_active_owner_busy_and_unready_deps(self) -> None:
+    def test_ready_selection_excludes_active_and_unready_deps(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             repo_root = Path(td) / "repo"
             repo_root.mkdir(parents=True, exist_ok=True)
@@ -163,34 +163,32 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T1-001", "active task", "AgentA", "-", "", "TODO"),
-                    ("T1-002", "same owner", "AgentA", "-", "", "TODO"),
-                    ("T1-003", "deps blocked", "AgentB", "T9-999", "", "TODO"),
-                    ("T1-004", "ready task", "AgentC", "-", "", "TODO"),
-                    ("T1-005", "stale metadata", "AgentD", "-", "", "TODO"),
+                    ("T1-001", "active task", "-", "", "TODO"),
+                    ("T1-002", "deps blocked", "T1-001", "", "TODO"),
+                    ("T1-003", "ready task", "-", "", "TODO"),
+                    ("T1-004", "stale metadata", "-", "", "TODO"),
                 ],
             )
-            _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004", "T1-005"])
+            _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004"])
 
             state_dir = repo_root / ".state"
             _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
             _write_pid(state_dir, "worker-active.pid", "AgentA", "app-shell", "T1-001", os.getpid(), repo_root)
 
-            _write_lock(state_dir, "ui-popover.lock", "AgentD", "ui-popover", "T1-005", repo_root)
-            _write_pid(state_dir, "worker-stale.pid", "AgentD", "ui-popover", "T1-005", 99999999, repo_root)
+            _write_lock(state_dir, "ui-popover.lock", "AgentD", "ui-popover", "T1-004", repo_root)
+            _write_pid(state_dir, "worker-stale.pid", "AgentD", "ui-popover", "T1-004", 99999999, repo_root)
 
             payload = _run_engine(repo_root, "ready")
 
             ready_ids = {item["task_id"] for item in payload["ready_tasks"]}
             excluded = {item["task_id"]: item for item in payload["excluded_tasks"]}
 
+            self.assertIn("T1-003", ready_ids)
             self.assertIn("T1-004", ready_ids)
-            self.assertIn("T1-005", ready_ids)
 
             self.assertEqual(excluded["T1-001"]["reason"], "active_worker")
             self.assertEqual(excluded["T1-001"]["source"], "pid")
-            self.assertEqual(excluded["T1-002"]["reason"], "owner_busy")
-            self.assertEqual(excluded["T1-003"]["reason"], "deps_not_ready")
+            self.assertEqual(excluded["T1-002"]["reason"], "deps_not_ready")
 
     def test_status_payload_contains_unified_sections(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -201,7 +199,7 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T2-001", "ready", "AgentA", "-", "", "TODO"),
+                    ("T2-001", "ready", "-", "", "TODO"),
                 ],
             )
             _write_specs(repo_root, ["T2-001"])
@@ -231,7 +229,7 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T3-001", "ready", "AgentA", "-", "", "TODO"),
+                    ("T3-001", "ready", "-", "", "TODO"),
                 ],
             )
             _write_specs(repo_root, ["T3-001"])
@@ -251,7 +249,7 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T6-001", "running", "AgentA", "-", "", "TODO"),
+                    ("T6-001", "running", "-", "", "TODO"),
                 ],
             )
             _write_specs(repo_root, ["T6-001"])
@@ -286,7 +284,7 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T4-001", "needs spec", "AgentA", "-", "", "TODO"),
+                    ("T4-001", "needs spec", "-", "", "TODO"),
                 ],
             )
 
@@ -306,7 +304,7 @@ class EngineReadyTests(unittest.TestCase):
             _write_todo(
                 repo_root,
                 [
-                    ("T5-001", "invalid spec", "AgentA", "-", "", "TODO"),
+                    ("T5-001", "invalid spec", "-", "", "TODO"),
                 ],
             )
 

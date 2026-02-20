@@ -23,9 +23,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T3-001 | Finish task | AgentA | - | complete path | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T3-001 | Finish task | - | complete path | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -55,7 +55,7 @@ cat > "$PID_META" <<'EOF'
 pid=999999
 task_id=T3-001
 owner=AgentA
-scope=app-shell
+scope=task-t3-001
 worktree=/tmp/non-existent
 started_at=2026-01-01T00:00:00Z
 launch_backend=codex_exec
@@ -70,7 +70,7 @@ if [[ ! -f "$PID_META" ]]; then
   exit 1
 fi
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA app-shell T3-001 --summary \"done\" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t3-001 T3-001 --summary \"done\" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T3-001"
 echo "$COMPLETE_OUT" | grep -q "Removed pid metadata for task=T3-001"
@@ -84,6 +84,6 @@ STATUS_OUT="$("$CLI" --repo "$REPO" status --trigger smoke-complete-pid)"
 echo "$STATUS_OUT"
 echo "$STATUS_OUT" | grep -q "Runtime: total=0 active=0 stale=0"
 
-grep -q "| T3-001 | Finish task | AgentA | - | complete path | DONE |" "$REPO/TODO.md"
+grep -q "| T3-001 | Finish task | - | complete path | DONE |" "$REPO/TODO.md"
 
 echo "task complete clears pid metadata smoke test passed"

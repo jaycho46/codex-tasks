@@ -122,22 +122,16 @@ Dashboard operations:
 
 - Scheduler scans `TODO.md` and evaluates only rows with `TODO` status.
 - A task is added to the ready queue only when:
-  - owner/scope mapping exists
   - no active worker, active lock, or conflicting runtime signal exists
-  - owner is not already busy
   - dependencies are ready
   - spec file exists and is valid (`tasks/specs/<task_id>.md`)
-- Non-ready tasks stay visible as excluded with reasons such as `owner_busy`, `deps_not_ready`, `missing_task_spec`, or `invalid_task_spec`.
+- Non-ready tasks stay visible as excluded with reasons such as `deps_not_ready`, `missing_task_spec`, or `invalid_task_spec`.
 
 ```mermaid
 flowchart LR
-  A["TODO.md row (status=TODO)"] --> B{"Owner/scope mapped?"}
-  B -- "No" --> X["Excluded (unmapped owner)"]
-  B -- "Yes" --> C{"Active worker/lock/conflict?"}
+  A["TODO.md row (status=TODO)"] --> C{"Active worker/lock/conflict?"}
   C -- "Yes" --> E["Excluded (active_worker / active_lock / active_signal_conflict)"]
-  C -- "No" --> D{"Owner already busy?"}
-  D -- "Yes" --> F["Excluded (owner_busy)"]
-  D -- "No" --> G{"Spec exists + valid?"}
+  C -- "No" --> G{"Spec exists + valid?"}
   G -- "No" --> H["Excluded (missing_task_spec / invalid_task_spec)"]
   G -- "Yes" --> I{"Dependencies ready?"}
   I -- "No" --> J["Excluded (deps_not_ready)"]
@@ -162,7 +156,7 @@ flowchart LR
 
 5. Completion phase (`task complete`)
 
-- Completion is accepted only when the task is `DONE`, tracked changes are committed, and lock owner/scope match.
+- Completion is accepted only when the task is `DONE`, tracked changes are committed, and lock agent/scope match.
 - `task complete` merges into base branch (default `rebase-then-ff`), clears runtime metadata, removes worktree/branch, and automatically runs the next scheduler start by default (disable with `--no-run-start`).
 
 Continuous loop view:

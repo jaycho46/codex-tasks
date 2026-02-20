@@ -46,9 +46,9 @@ chmod +x "$FAKE_BIN/tmux"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-201 | tmux policy | AgentA | - | policy check | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-201 | tmux policy | - | policy check | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"

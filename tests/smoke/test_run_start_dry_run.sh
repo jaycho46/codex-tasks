@@ -14,11 +14,11 @@ git -C "$REPO" init -q
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T1-001 | Active task | AgentA | - | | TODO |
-| T1-002 | Same owner | AgentA | - | | TODO |
-| T1-003 | Ready task | AgentB | - | | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T1-001 | Active task | - | | TODO |
+| T1-002 | Depends on active | T1-001 | | TODO |
+| T1-003 | Ready task | - | | TODO |
 EOF
 
 mkdir -p "$REPO/.state/locks" "$REPO/.state/orchestrator"
@@ -44,7 +44,7 @@ echo "$OUTPUT"
 
 echo "$OUTPUT" | grep -q "Excluded tasks: 2"
 echo "$OUTPUT" | grep -q "reason=active_worker"
-echo "$OUTPUT" | grep -q "reason=owner_busy"
+echo "$OUTPUT" | grep -q "reason=deps_not_ready"
 echo "$OUTPUT" | grep -q "\[DRY-RUN\].*T1-003"
 
 echo "smoke test passed"

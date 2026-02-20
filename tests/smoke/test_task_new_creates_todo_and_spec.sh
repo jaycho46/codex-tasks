@@ -39,7 +39,7 @@ echo "$OUT_NEW"
 echo "$OUT_NEW" | grep -q "Added task to TODO board: T4-321"
 echo "$OUT_NEW" | grep -q "Created task: id=T4-321"
 
-grep -q "| T4-321 | New task summary | AgentA | T4-320 |  | TODO |" "$REPO/TODO.md"
+grep -q "| T4-321 | New task summary | T4-320 |  | TODO |" "$REPO/TODO.md"
 test -f "$REPO/tasks/specs/T4-321.md"
 grep -q "^## Goal$" "$REPO/tasks/specs/T4-321.md"
 grep -q "^## In Scope$" "$REPO/tasks/specs/T4-321.md"

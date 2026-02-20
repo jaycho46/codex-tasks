@@ -14,7 +14,7 @@ Execution rules:
 - Read and follow the task spec file at `tasks/specs/__TASK_ID__.md` before implementing.
 - Do not mark DONE unless task deliverable files were actually added or updated.
 - Do not finish with generic summaries such as "task complete" or "done".
-- Keep work scoped to the assigned task title and owner scope.
+- Keep work scoped to the assigned task title and task scope.
 - Do not manually edit lock/pid metadata files.
 - Report progress with a specific summary:
   __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" IN_PROGRESS "progress update"

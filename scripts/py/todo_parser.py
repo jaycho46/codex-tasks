@@ -59,7 +59,6 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
 
     id_col = int(schema["id_col"])
     title_col = int(schema["title_col"])
-    owner_col = int(schema["owner_col"])
     deps_col = int(schema["deps_col"])
     status_col = int(schema["status_col"])
 
@@ -70,7 +69,6 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
 
         task_id = _field(cols, id_col)
         title = _field(cols, title_col)
-        owner = _field(cols, owner_col)
         deps = _field(cols, deps_col)
         status = _field(cols, status_col)
 
@@ -81,7 +79,6 @@ def parse_todo(todo_file: str | Path, schema: dict[str, Any]) -> tuple[list[dict
             {
                 "id": task_id,
                 "title": title,
-                "owner": owner,
                 "deps": deps,
                 "status": status,
             }

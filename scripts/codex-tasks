@@ -30,7 +30,7 @@ Usage:
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task new <task_id> [--deps <task_id[,task_id...]>] <summary>
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task complete <agent> <scope> <task_id> [--summary <text>] [--trigger <label>] [--no-run-start] [--merge-strategy <ff-only|rebase-then-ff>]
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task scaffold-specs [--task <id>] [--dry-run] [--force]
-  codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task stop (--task <id> | --owner <owner> | --all) [--reason <text>] [--apply]
+  codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task stop (--task <id> | --all) [--reason <text>] [--apply]
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task cleanup-stale [--apply]
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] task emergency-stop [--reason <text>] [--yes]
   codex-tasks [--repo <path>] [--state-dir <path>] [--config <path>] emergency-stop [--reason <text>] [--yes]

@@ -27,15 +27,11 @@ launch_backend = "tmux"
 auto_no_launch = false
 codex_flags = "--full-auto"
 
-[owners]
-AgentA = "app-shell"
-
 [todo]
 id_col = 2
 title_col = 3
-owner_col = 4
-deps_col = 5
-status_col = 7
+deps_col = 4
+status_col = 6
 gate_regex = "`(G[0-9]+ \\\\([^)]+\\\\))`"
 done_keywords = ["DONE", "완료", "complete"] # inline comment
 """.strip()
@@ -45,7 +41,6 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
         self.assertEqual(parsed["repo"]["base_branch"], "main")
         self.assertEqual(parsed["runtime"]["max_start"], 2)
         self.assertFalse(parsed["runtime"]["auto_no_launch"])
-        self.assertEqual(parsed["owners"]["AgentA"], "app-shell")
         self.assertEqual(parsed["todo"]["done_keywords"][1], "완료")
 
     def test_load_config_bootstraps_and_expands_repo_placeholder(self) -> None:
@@ -87,9 +82,6 @@ done_keywords = ["DONE", "완료", "complete"] # inline comment
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             cfg_path.write_text(
                 """
-[owners]
-AgentA = "app-shell"
-
 [todo]
 id_col = 0
 """.strip()

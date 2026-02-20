@@ -14,9 +14,9 @@ git -C "$REPO" init -q
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-101 | Spec required task | AgentA | - | | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-101 | Spec required task | - | | TODO |
 EOF
 
 OUT_MISSING="$($CLI --repo "$REPO" run start --dry-run --trigger smoke-requires-spec-missing)"

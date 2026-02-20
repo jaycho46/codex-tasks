@@ -41,9 +41,9 @@ chmod +x "$FAKE_BIN/codex"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-301 | auto cleanup | AgentA | - | watcher cleanup | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-301 | auto cleanup | - | watcher cleanup | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -56,7 +56,7 @@ echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
 PID_META="$REPO/.state/orchestrator/t9-301.pid"
-LOCK_FILE="$REPO/.state/locks/app-shell.lock"
+LOCK_FILE="$REPO/.state/locks/task-t9-301.lock"
 WT_PATH="$TMP_DIR/repo-worktrees/repo-agenta-t9-301"
 BRANCH_NAME="codex/agenta-t9-301"
 
@@ -96,7 +96,7 @@ if git -C "$REPO" rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T9-301 | auto cleanup | AgentA | - | watcher cleanup | TODO |" "$REPO/TODO.md"
+grep -q "| T9-301 | auto cleanup | - | watcher cleanup | TODO |" "$REPO/TODO.md"
 grep -q "Stopped by codex-tasks: worker exited (backend=tmux)" "$REPO/.state/LATEST_UPDATES.md"
 
 echo "run start auto cleanup on exit smoke test passed"

@@ -21,10 +21,10 @@ $CLI --repo "$REPO" task init
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T1-001 | App shell bootstrap | AgentA | - | seed | TODO |
-| T1-002 | Domain core service | AgentB | T1-001 | wait T1-001 | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T1-001 | App shell bootstrap | - | seed | TODO |
+| T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |
 EOF
 
 git -C "$REPO" add TODO.md
@@ -48,7 +48,7 @@ fi
 
 # Simulate task completion from agent worktree context.
 $CLI --repo "$WT_A" --state-dir "$REPO/.state" task update AgentA T1-001 DONE "done in smoke"
-$CLI --repo "$WT_A" --state-dir "$REPO/.state" task unlock AgentA app-shell
+$CLI --repo "$WT_A" --state-dir "$REPO/.state" task unlock AgentA task-t1-001
 
 # Source-of-truth for scheduler is the primary repo TODO board.
 # Simulate merge/finish by reflecting T1-001 DONE on main TODO.
@@ -75,13 +75,13 @@ echo "$RUN2"
 echo "$RUN2" | grep -q "Started tasks: 1"
 echo "$RUN2" | grep -q "T1-002"
 
-grep -q "| T1-001 | App shell bootstrap | AgentA | - | seed | DONE |" "$REPO/TODO.md"
-grep -q "| T1-002 | Domain core service | AgentB | T1-001 | wait T1-001 | TODO |" "$REPO/TODO.md"
+grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/TODO.md"
+grep -q "| T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |" "$REPO/TODO.md"
 
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-after-done-second)"
 echo "$STATUS_OUT"
 
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
-echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 owner=AgentB reason=active_lock source=lock"
+echo "$STATUS_OUT" | grep -q "\[EXCLUDED\] T1-002 reason=active_lock source=lock"
 
 echo "run start after done smoke test passed"

@@ -24,13 +24,13 @@ $CLI --repo "$REPO" task init
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T1-001 | App shell bootstrap | AgentA | - | seed | TODO |
-| T1-002 | Domain core service | AgentB | T1-001 | blocked by T1-001 | TODO |
-| T1-003 | Provider integration | AgentC | - | seed | TODO |
-| T1-004 | UI popover polish | AgentD | T1-003 | blocked by T1-003 | TODO |
-| T1-005 | CI release pipeline | AgentE | - | seed | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T1-001 | App shell bootstrap | - | seed | TODO |
+| T1-002 | Domain core service | T1-001 | blocked by T1-001 | TODO |
+| T1-003 | Provider integration | - | seed | TODO |
+| T1-004 | UI popover polish | T1-003 | blocked by T1-003 | TODO |
+| T1-005 | CI release pipeline | - | seed | TODO |
 EOF
 
 git -C "$REPO" add TODO.md

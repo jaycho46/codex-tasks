@@ -12,9 +12,8 @@ from todo_parser import TodoError, build_indexes, deps_ready, parse_todo
 SCHEMA = {
     "id_col": 2,
     "title_col": 3,
-    "owner_col": 4,
-    "deps_col": 5,
-    "status_col": 7,
+    "deps_col": 4,
+    "status_col": 6,
     "gate_regex": r"`(G[0-9]+ \([^)]+\))`",
     "done_keywords": ["DONE", "완료", "Complete", "complete"],
 }
@@ -28,11 +27,11 @@ class TodoParserTests(unittest.TestCase):
                 """
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T1-001 | First | AgentA | - | note | DONE |
-| T1-002 | Second | AgentB | T1-001,G1 | note | TODO |
-| T1-003 | Third | AgentC | G2 | note | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T1-001 | First | - | note | DONE |
+| T1-002 | Second | T1-001,G1 | note | TODO |
+| T1-003 | Third | G2 | note | TODO |
 
 Gate state: `G1 (DONE)`
 Gate state: `G2 (PENDING)`
@@ -66,9 +65,9 @@ Gate state: `G2 (PENDING)`
                 """
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T2-001 | Title with \\| pipe | AgentA | - | note with \\| pipe | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T2-001 | Title with \\| pipe | - | note with \\| pipe | TODO |
 """.strip()
                 + "\n",
                 encoding="utf-8",
@@ -78,7 +77,6 @@ Gate state: `G2 (PENDING)`
             self.assertEqual(len(tasks), 1)
             self.assertEqual(tasks[0]["id"], "T2-001")
             self.assertEqual(tasks[0]["title"], "Title with | pipe")
-            self.assertEqual(tasks[0]["owner"], "AgentA")
             self.assertEqual(tasks[0]["deps"], "-")
             self.assertEqual(tasks[0]["status"], "TODO")
 

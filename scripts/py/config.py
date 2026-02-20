@@ -205,13 +205,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "state_dir": ".state",
         "worktree_parent": "../<repo>-worktrees",
     },
-    "owners": {
-        "AgentA": "app-shell",
-        "AgentB": "domain-core",
-        "AgentC": "provider-openai",
-        "AgentD": "ui-popover",
-        "AgentE": "ci-release",
-    },
     "runtime": {
         "max_start": 0,
         "launch_backend": "tmux",
@@ -221,9 +214,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "todo": {
         "id_col": 2,
         "title_col": 3,
-        "owner_col": 4,
-        "deps_col": 5,
-        "status_col": 7,
+        "deps_col": 4,
+        "status_col": 6,
         "gate_regex": r"`(G[0-9]+ \\([^)]+\\))`",
         "done_keywords": ["DONE", "완료", "Complete", "complete"],
     },
@@ -253,13 +245,6 @@ todo_file = {q(str(DEFAULT_CONFIG["repo"]["todo_file"]))}
 state_dir = {q(str(DEFAULT_CONFIG["repo"]["state_dir"]))}
 worktree_parent = {q(default_worktree_parent)}
 
-[owners]
-AgentA = {q(str(DEFAULT_CONFIG["owners"]["AgentA"]))}
-AgentB = {q(str(DEFAULT_CONFIG["owners"]["AgentB"]))}
-AgentC = {q(str(DEFAULT_CONFIG["owners"]["AgentC"]))}
-AgentD = {q(str(DEFAULT_CONFIG["owners"]["AgentD"]))}
-AgentE = {q(str(DEFAULT_CONFIG["owners"]["AgentE"]))}
-
 [runtime]
 max_start = {int(DEFAULT_CONFIG["runtime"]["max_start"])}
 launch_backend = {q(str(DEFAULT_CONFIG["runtime"]["launch_backend"]))}
@@ -269,17 +254,12 @@ codex_flags = {q(str(DEFAULT_CONFIG["runtime"]["codex_flags"]))}
 [todo]
 id_col = {int(DEFAULT_CONFIG["todo"]["id_col"])}
 title_col = {int(DEFAULT_CONFIG["todo"]["title_col"])}
-owner_col = {int(DEFAULT_CONFIG["todo"]["owner_col"])}
 deps_col = {int(DEFAULT_CONFIG["todo"]["deps_col"])}
 status_col = {int(DEFAULT_CONFIG["todo"]["status_col"])}
 gate_regex = {q(str(DEFAULT_CONFIG["todo"]["gate_regex"]))}
 done_keywords = ["DONE", "완료", "Complete", "complete"]
 """
     cfg_path.write_text(template, encoding="utf-8")
-
-
-def owner_key(owner: str) -> str:
-    return "".join(ch.lower() for ch in owner if ch.isalnum())
 
 
 def _deep_merge(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
@@ -328,12 +308,8 @@ def load_config(repo_root: Path, config_path: str | None = None) -> tuple[dict[s
 
     merged = _deep_merge(DEFAULT_CONFIG, parsed)
 
-    owners = merged.get("owners", {})
-    if not isinstance(owners, dict) or not owners:
-        raise ConfigError("[owners] must be a non-empty table")
-
     todo = merged.get("todo", {})
-    for key in ("id_col", "title_col", "owner_col", "deps_col", "status_col"):
+    for key in ("id_col", "title_col", "deps_col", "status_col"):
         value = todo.get(key)
         if not isinstance(value, int) or value < 1:
             raise ConfigError(f"todo.{key} must be an integer >= 1")
@@ -385,9 +361,6 @@ def resolve_context(
         "codex_flags": str(config["runtime"]["codex_flags"]),
     }
 
-    owners_raw = {str(k): str(v) for k, v in config["owners"].items()}
-    owners_by_key = {owner_key(k): v for k, v in owners_raw.items()}
-
     return {
         "repo_root": str(repo_root),
         "repo_name": repo_name,
@@ -401,6 +374,4 @@ def resolve_context(
         "worktree_parent": str(worktree_parent),
         "runtime": runtime,
         "todo": config["todo"],
-        "owners": owners_raw,
-        "owners_by_key": owners_by_key,
     }

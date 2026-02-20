@@ -30,9 +30,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-401 | done guard | AgentA | - | preserve done | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-401 | done guard | - | preserve done | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -76,7 +76,7 @@ cat > "$PID_META" <<EOF
 pid=999991
 task_id=T9-401
 owner=AgentA
-scope=app-shell
+scope=task-t9-401
 worktree=$WT_PATH
 started_at=2026-01-01T00:00:00Z
 launch_backend=tmux
@@ -91,7 +91,7 @@ echo "$AUTO_OUT"
 echo "$AUTO_OUT" | grep -q "task-auto-cleanup-exit"
 echo "$AUTO_OUT" | grep -q "TODO rollback skipped: task status is DONE"
 
-LOCK_FILE="$REPO/.state/locks/app-shell.lock"
+LOCK_FILE="$REPO/.state/locks/task-t9-401.lock"
 if [[ -f "$LOCK_FILE" ]]; then
   echo "lock should be removed by auto-cleanup: $LOCK_FILE"
   exit 1
@@ -109,6 +109,6 @@ if git -C "$REPO" rev-parse --verify "codex/agenta-t9-401" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T9-401 | done guard | AgentA | - | preserve done | DONE |" "$REPO/TODO.md"
+grep -q "| T9-401 | done guard | - | preserve done | DONE |" "$REPO/TODO.md"
 
 echo "auto cleanup done guard smoke test passed"

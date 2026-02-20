@@ -34,8 +34,8 @@ codex-tasks run start
 Use the standard table shape:
 
 ```md
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
 | T2-101 | Billing webhook retry policy | AgentB | T2-100 | needs backfill | TODO |
 ```
 
@@ -50,7 +50,6 @@ codex-tasks task new T2-101 "Billing webhook retry policy"
 What this does:
 
 - appends a `TODO` row to `TODO.md`
-- uses the default owner (first entry in `[owners]` config)
 - records prerequisites in `Deps` when `--deps` is provided (comma/space separated task ids)
 - creates `tasks/specs/T2-101.md`
 
@@ -128,4 +127,4 @@ Immediate recovery sequence:
 |---|---|---|
 | `reason=missing_task_spec` | `tasks/specs/<task_id>.md` does not exist | Run `codex-tasks task scaffold-specs` and commit the new file |
 | `reason=invalid_task_spec` | Missing or empty `Goal`, `In Scope`, or `Acceptance Criteria` | Fill all required sections with non-empty content |
-| Task still excluded after spec update | TODO status/deps/owner rules still block it | Check `owner_busy`, `deps_not_ready`, and active lock/worker reasons |
+| Task still excluded after spec update | TODO status/deps/runtime rules still block it | Check `deps_not_ready` and active lock/worker reasons |

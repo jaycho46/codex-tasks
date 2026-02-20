@@ -99,8 +99,8 @@ ensure_todo_template() {
   cat > "$TODO_FILE" <<'TODO_TEMPLATE'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
 TODO_TEMPLATE
 }
 
@@ -563,20 +563,7 @@ cmd_task_new() {
   [[ -n "$task_id" && -n "$summary" ]] || die "Usage: codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>"
   [[ "$task_id" != *"|"* ]] || die "task_id must not contain '|': $task_id"
 
-  local default_owner
-  default_owner="$("$PYTHON_BIN" - "$OWNERS_JSON" <<'PY'
-import json
-import sys
-
-owners = json.loads(sys.argv[1])
-if not isinstance(owners, dict) or not owners:
-    raise SystemExit(2)
-print(next(iter(owners.keys())))
-PY
-)"
-  [[ -n "$default_owner" ]] || die "Unable to resolve default owner from [owners] config."
-
-  if ! "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$task_id" "$summary" "$default_owner" "$deps_raw" <<'PY'
+  if ! "$PYTHON_BIN" - "$TODO_FILE" "$TODO_SCHEMA_JSON" "$task_id" "$summary" "$deps_raw" <<'PY'
 import json
 import re
 import sys
@@ -586,8 +573,7 @@ todo_file = Path(sys.argv[1])
 schema = json.loads(sys.argv[2])
 task_id = sys.argv[3].strip()
 title = sys.argv[4].strip()
-owner = sys.argv[5].strip()
-deps_input = sys.argv[6].strip()
+deps_input = sys.argv[5].strip()
 
 if not task_id:
     print("Error: task_id is empty", file=sys.stderr)
@@ -619,7 +605,6 @@ if deps_input and deps_input != "-":
 
 id_col = int(schema["id_col"])
 title_col = int(schema["title_col"])
-owner_col = int(schema["owner_col"])
 deps_col = int(schema["deps_col"])
 status_col = int(schema["status_col"])
 
@@ -662,7 +647,6 @@ def set_by_col(col_no: int, value: str) -> None:
 
 set_by_col(id_col, task_id)
 set_by_col(title_col, title)
-set_by_col(owner_col, owner)
 set_by_col(deps_col, deps_value)
 set_by_col(status_col, "TODO")
 
@@ -681,7 +665,7 @@ insert_idx = max(table_rows) + 1
 lines.insert(insert_idx, new_row)
 
 todo_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-print(f"Added task to TODO board: {task_id} (owner={owner})")
+print(f"Added task to TODO board: {task_id}")
 PY
   then
     die "Failed to append new task to TODO board."
@@ -689,7 +673,7 @@ PY
 
   local new_task_id="$task_id"
   cmd_task_scaffold_specs --task "$new_task_id"
-  echo "Created task: id=$new_task_id owner=$default_owner title=$summary"
+  echo "Created task: id=$new_task_id title=$summary"
 }
 
 cmd_task_lock() {
@@ -1527,7 +1511,6 @@ cmd_task_stop() {
 
   local target_mode=""
   local target_task=""
-  local target_owner=""
   local reason="requested by operator"
   local apply=0
 
@@ -1536,19 +1519,12 @@ cmd_task_stop() {
       --task)
         shift || true
         [[ $# -gt 0 ]] || die "Missing value for --task"
-        [[ -z "$target_mode" ]] || die "Use only one of --task/--owner/--all"
+        [[ -z "$target_mode" ]] || die "Use only one of --task/--all"
         target_mode="task"
         target_task="$1"
         ;;
-      --owner)
-        shift || true
-        [[ $# -gt 0 ]] || die "Missing value for --owner"
-        [[ -z "$target_mode" ]] || die "Use only one of --task/--owner/--all"
-        target_mode="owner"
-        target_owner="$1"
-        ;;
       --all)
-        [[ -z "$target_mode" ]] || die "Use only one of --task/--owner/--all"
+        [[ -z "$target_mode" ]] || die "Use only one of --task/--all"
         target_mode="all"
         ;;
       --reason)
@@ -1566,12 +1542,11 @@ cmd_task_stop() {
     shift || true
   done
 
-  [[ -n "$target_mode" ]] || die "task stop requires one target: --task <id> | --owner <owner> | --all"
+  [[ -n "$target_mode" ]] || die "task stop requires one target: --task <id> | --all"
 
   local -a cmd=(select-stop --repo "$REPO_ROOT" --state-dir "$STATE_DIR" --format tsv)
   case "$target_mode" in
     task) cmd+=(--task "$target_task") ;;
-    owner) cmd+=(--owner "$target_owner") ;;
     all) cmd+=(--all) ;;
   esac
   if [[ -n "${TEAM_CONFIG_ARG:-}" ]]; then
@@ -2347,17 +2322,16 @@ print(f"Trigger: {payload.get('trigger', 'manual')}")
 print(f"State dir: {payload.get('state_dir', '')}")
 print(f"Running locks: {len(running)}")
 for item in running:
-    print(f"  - scope={item.get('scope', '')} owner={item.get('owner', '')} task={item.get('task_id', '')}")
+    print(f"  - scope={item.get('scope', '')} agent={item.get('owner', '')} task={item.get('task_id', '')}")
 
 print(f"Ready tasks: {len(ready)}")
 for item in ready:
-    print(f"  - {item.get('task_id', '')} | {item.get('owner', '')} | deps={item.get('deps', '')} | {item.get('title', '')}")
+    print(f"  - {item.get('task_id', '')} | deps={item.get('deps', '')} | {item.get('title', '')}")
 
 print(f"Excluded tasks: {len(excluded)}")
 for item in excluded:
     print(
-        f"  - {item.get('task_id', '')} | {item.get('owner', '')} "
-        f"| reason={item.get('reason', '')} source={item.get('source', '')}"
+        f"  - {item.get('task_id', '')} | reason={item.get('reason', '')} source={item.get('source', '')}"
     )
 PY
 }
@@ -2479,7 +2453,7 @@ cmd_run_start() {
   ready_tsv="$("$PYTHON_BIN" "$PY_ENGINE" "${ready_cmd[@]}" --format tsv)"
 
   local started_count=0
-  while IFS=$'\t' read -r task_id task_title owner scope deps status spec_rel_path goal_summary in_scope_summary acceptance_summary; do
+  while IFS=$'\t' read -r task_id task_title agent_name scope deps status spec_rel_path goal_summary in_scope_summary acceptance_summary; do
     [[ -n "${task_id:-}" ]] || continue
 
     local agent summary start_output worktree_path
@@ -2488,7 +2462,7 @@ cmd_run_start() {
     local worktree_existed_before=0
     local -a start_cmd
 
-    agent="$(normalize_agent_name "$owner")"
+    agent="$(normalize_agent_name "$agent_name")"
     summary="Auto-start by scheduler (${trigger})"
     branch_name="$(branch_name_for "$agent" "$task_id" || true)"
     expected_worktree_path="$(default_worktree_path_for "$REPO_NAME" "$agent" "$task_id" "$WORKTREE_PARENT_DIR")"
@@ -2514,8 +2488,8 @@ cmd_run_start() {
 
     if ! start_output="$(AI_STATE_DIR="$STATE_DIR" "${start_cmd[@]}" 2>&1)"; then
       echo "$start_output"
-      echo "[ERROR] Failed to start task=$task_id owner=$owner"
-      rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
+      echo "[ERROR] Failed to start task=$task_id agent=$agent_name"
+      rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree start failed"
       continue
     fi
 
@@ -2523,25 +2497,25 @@ cmd_run_start() {
 
     worktree_path="$(printf '%s\n' "$start_output" | awk -F'=' '/^worktree=/{print substr($0,10)}' | tail -n1)"
     if [[ -z "$worktree_path" || ! -d "$worktree_path" ]]; then
-      echo "[ERROR] Missing worktree path after start: task=$task_id owner=$owner"
-      rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
+      echo "[ERROR] Missing worktree path after start: task=$task_id agent=$agent_name"
+      rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$expected_worktree_path" "worktree path missing"
       continue
     fi
 
     if [[ "$no_launch" -eq 0 ]]; then
       local launch_ok=0
       if [[ "$launch_backend" == "tmux" ]]; then
-        if launch_codex_tmux_worker "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_tmux_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       else
-        if launch_codex_exec_worker "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_exec_worker "$task_id" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_rel_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
           launch_ok=1
         fi
       fi
       if [[ "$launch_ok" -eq 0 ]]; then
-        echo "[ERROR] Failed to launch codex worker: task=$task_id owner=$owner"
-        rollback_start_attempt "$task_id" "$owner" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
+        echo "[ERROR] Failed to launch codex worker: task=$task_id agent=$agent_name"
+        rollback_start_attempt "$task_id" "$agent_name" "$scope" "$branch_name" "$branch_existed_before" "$worktree_existed_before" "$worktree_path" "codex launch failed"
         continue
       fi
     fi

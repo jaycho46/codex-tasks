@@ -24,9 +24,9 @@ git -C "$REPO" commit -q -m "chore: initial"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T9-101 | Recover orphan worktree path | AgentA | - | stale dir exists | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T9-101 | Recover orphan worktree path | - | stale dir exists | TODO |
 EOF
 
 git -C "$REPO" add TODO.md

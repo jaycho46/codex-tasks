@@ -40,9 +40,9 @@ chmod +x "$FAKE_BIN/codex"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T8-009 | Rollback kill check | AgentA | - | force pid-meta write error | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T8-009 | Rollback kill check | - | force pid-meta write error | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -68,7 +68,7 @@ if [[ -n "$AFTER_PIDS" && "$AFTER_PIDS" != "$BEFORE_PIDS" ]]; then
   exit 1
 fi
 
-LOCK_FILE="$REPO/.state/locks/app-shell.lock"
+LOCK_FILE="$REPO/.state/locks/task-t8-009.lock"
 if [[ -f "$LOCK_FILE" ]]; then
   echo "lock file should be removed by rollback: $LOCK_FILE"
   exit 1
@@ -85,6 +85,6 @@ if git -C "$REPO" rev-parse --verify "codex/agenta-t8-009" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T8-009 | Rollback kill check | AgentA | - | force pid-meta write error | TODO |" "$REPO/TODO.md"
+grep -q "| T8-009 | Rollback kill check | - | force pid-meta write error | TODO |" "$REPO/TODO.md"
 
 echo "run start rollback kills codex process smoke test passed"

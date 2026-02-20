@@ -20,7 +20,7 @@ def _read_version() -> str:
     except FileNotFoundError:
         return "dev"
 
-from config import ConfigError, load_config, owner_key, resolve_context
+from config import ConfigError, load_config, resolve_context
 from session_parser import SessionBlock, SessionView, parse_session_structured, read_tail_text
 from state_model import (
     classify_records,
@@ -79,8 +79,6 @@ def to_env(ctx: dict[str, Any]) -> str:
         "AUTO_NO_LAUNCH": "1" if ctx["runtime"]["auto_no_launch"] else "0",
         "CODEX_FLAGS": ctx["runtime"]["codex_flags"],
         "CONFIG_PATH": ctx["config_path"],
-        "OWNERS_JSON": json.dumps(ctx["owners"], ensure_ascii=False),
-        "OWNERS_BY_KEY_JSON": json.dumps(ctx["owners_by_key"], ensure_ascii=False),
         "TODO_SCHEMA_JSON": json.dumps(ctx["todo"], ensure_ascii=False),
     }
     return "\n".join(f"{k}={shlex.quote(v)}" for k, v in plain.items())
@@ -90,21 +88,29 @@ def ensure_todo_file(todo_path: str | Path) -> Path:
     path = Path(todo_path)
     canonical_template = """# TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
 """
-    legacy_empty_template = """# TODO Board
+    legacy_area_template = """# TODO Board
 
 | Area | ID | Title | Owner | Deps | Notes | Status |
 |---|---|---|---|---|---|---|
+"""
+    legacy_owner_template = """# TODO Board
+
+| ID | Title | Owner | Deps | Notes | Status |
+|---|---|---|---|---|---|
 """
 
     if path.exists():
         current = path.read_text(encoding="utf-8")
         # Backward compatibility: early dashboard bootstrap created an empty
-        # 7-column placeholder that does not match the scheduler defaults.
-        # Rewrite only when file is still the untouched empty placeholder.
-        if current.strip() == legacy_empty_template.strip():
+        # placeholder that does not match current scheduler defaults.
+        # Rewrite only when file is still an untouched empty placeholder.
+        if current.strip() in {
+            legacy_area_template.strip(),
+            legacy_owner_template.strip(),
+        }:
             path.write_text(canonical_template, encoding="utf-8")
         return path
 
@@ -122,9 +128,16 @@ def cmd_paths(args: argparse.Namespace) -> None:
     print(json.dumps(ctx, ensure_ascii=False, indent=2))
 
 
-def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str]], set[str], dict[str, str]]:
+def _task_agent_and_scope(task_id: str) -> tuple[str, str]:
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in task_id.strip())
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-") or "task"
+    return ("AgentA", f"task-{slug}")
+
+
+def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     active_by_task: dict[str, dict[str, str]] = {}
-    active_owner_keys: set[str] = set()
     conflict_by_task: dict[str, str] = {}
 
     task_active_records: dict[str, list[dict[str, Any]]] = {}
@@ -135,10 +148,6 @@ def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str
             continue
 
         task_active_records.setdefault(task_id, []).append(row)
-
-        owner = str(row.get("owner") or "")
-        if owner:
-            active_owner_keys.add(owner_key(owner))
 
         has_alive_pid = bool(row.get("pid_alive"))
         has_lock = bool(row.get("lock_file"))
@@ -153,15 +162,12 @@ def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str
         if len(rows) <= 1:
             continue
 
-        owner_keys = {owner_key(str(r.get("owner") or ""))
-                      for r in rows if str(r.get("owner") or "")}
         has_lock = any(bool(r.get("lock_file")) for r in rows)
         has_pid = any(bool(r.get("pid_alive")) for r in rows)
-        if has_lock and has_pid:
-            if len(owner_keys) > 1 or len(rows) > 1:
-                conflict_by_task[task_id] = "active_signal_conflict"
+        if has_lock and has_pid and len(rows) > 1:
+            conflict_by_task[task_id] = "active_signal_conflict"
 
-    return active_by_task, active_owner_keys, conflict_by_task
+    return active_by_task, conflict_by_task
 
 
 def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -175,7 +181,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
     pid_rows = load_pid_inventory(ctx["orch_dir"])
     records = classify_records(pid_rows, lock_rows)
 
-    active_by_task, active_owner_keys, conflict_by_task = _active_maps(records)
+    active_by_task, conflict_by_task = _active_maps(records)
 
     running_locks: list[dict[str, str]] = []
     for lock in lock_rows:
@@ -192,27 +198,20 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     ready_tasks: list[dict[str, str]] = []
     excluded_tasks: list[dict[str, str]] = []
-    scheduled_owner_keys: set[str] = set()
 
     for task in tasks:
         if task["status"] != "TODO":
             continue
 
         task_id = task["id"]
-        owner = task["owner"]
-        task_owner_key = owner_key(owner)
-        scope = ctx["owners_by_key"].get(task_owner_key)
-
-        if not scope:
-            # unmapped owner is intentionally skipped from scheduling
-            continue
+        agent, scope = _task_agent_and_scope(task_id)
 
         if task_id in conflict_by_task:
             excluded_tasks.append(
                 {
                     "task_id": task_id,
                     "title": task["title"],
-                    "owner": owner,
+                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -228,27 +227,12 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "task_id": task_id,
                     "title": task["title"],
-                    "owner": owner,
+                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
                     "reason": active_signal["reason"],
                     "source": active_signal["source"],
-                }
-            )
-            continue
-
-        if task_owner_key in active_owner_keys or task_owner_key in scheduled_owner_keys:
-            excluded_tasks.append(
-                {
-                    "task_id": task_id,
-                    "title": task["title"],
-                    "owner": owner,
-                    "scope": scope,
-                    "deps": task["deps"],
-                    "status": task["status"],
-                    "reason": "owner_busy",
-                    "source": "scheduler",
                 }
             )
             continue
@@ -259,7 +243,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "task_id": task_id,
                     "title": task["title"],
-                    "owner": owner,
+                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -273,7 +257,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "task_id": task_id,
                     "title": task["title"],
-                    "owner": owner,
+                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -288,7 +272,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "task_id": task_id,
                     "title": task["title"],
-                    "owner": owner,
+                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -302,8 +286,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
             {
                 "task_id": task_id,
                 "title": task["title"],
-                "owner": owner,
-                "owner_key": task_owner_key,
+                "owner": agent,
                 "scope": scope,
                 "deps": task["deps"],
                 "status": task["status"],
@@ -313,7 +296,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "acceptance_summary": str(spec.get("acceptance_summary") or ""),
             }
         )
-        scheduled_owner_keys.add(task_owner_key)
 
         if max_start > 0 and len(ready_tasks) >= max_start:
             break
@@ -412,13 +394,10 @@ def _task_board_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     for task in tasks:
         status = str(task.get("status") or "")
-        owner = str(task.get("owner") or "")
         rows.append(
             {
                 "task_id": str(task.get("id") or ""),
                 "title": str(task.get("title") or ""),
-                "owner": owner,
-                "scope": str(ctx["owners_by_key"].get(owner_key(owner), "")),
                 "deps": str(task.get("deps") or ""),
                 "status": status,
             }
@@ -576,10 +555,10 @@ def _render_status_text(payload: dict[str, Any]) -> str:
     )
     for item in ready_tasks:
         lines.append(
-            f"  [READY] {item.get('task_id', '')} owner={item.get('owner', '')} deps={item.get('deps', '')}")
+            f"  [READY] {item.get('task_id', '')} deps={item.get('deps', '')}")
     for item in excluded_tasks:
         lines.append(
-            f"  [EXCLUDED] {item.get('task_id', '')} owner={item.get('owner', '')} "
+            f"  [EXCLUDED] {item.get('task_id', '')} "
             f"reason={item.get('reason', '')} source={item.get('source', '')}"
         )
 
@@ -599,7 +578,7 @@ def _render_status_text(payload: dict[str, Any]) -> str:
         f"Coordination: locks={coordination.get('summary', {}).get('locks', 0)}")
     for lock in active_locks:
         lines.append(
-            f"  [LOCK] scope={lock.get('scope', '')} owner={lock.get('owner', '')} task={lock.get('task_id', '')}")
+            f"  [LOCK] scope={lock.get('scope', '')} agent={lock.get('owner', '')} task={lock.get('task_id', '')}")
 
     return "\n".join(lines)
 
@@ -1655,11 +1634,11 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             lock_labels: list[str] = []
             for lock in active_locks:
                 task_id = str(lock.get("task_id", "")).strip() or "N/A"
-                owner = str(lock.get("owner", "")).strip()
+                agent = str(lock.get("owner", "")).strip()
                 scope = str(lock.get("scope", "")).strip()
                 suffix = ""
-                if owner or scope:
-                    suffix = f"@{owner}/{scope}".rstrip("/")
+                if agent or scope:
+                    suffix = f"@{agent}/{scope}".rstrip("/")
                 lock_labels.append(f"{task_id}{suffix}")
             locks_joined = self._compact_text(
                 ", ".join(lock_labels) if lock_labels else "-")
@@ -1809,15 +1788,13 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                     (
                         task_id,
                         str(item.get("title", "")),
-                        str(item.get("owner", "")),
-                        str(item.get("scope", "")),
                         self._status_cell(task_status),
                         spec_mark,
                         str(item.get("deps", "")),
                     )
                 )
             self._fill_table(task_table, task_rows, ("-", "-",
-                             "-", "-", "-", "-", "-"), key_columns=(0,))
+                             "-", "-", "-"), key_columns=(0,))
 
             log_table = self.query_one("#log_table", DataTable)
             log_rows = [
@@ -2034,7 +2011,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ready_table.border_subtitle = "dependency-cleared queue"
             ready_table.zebra_stripes = True
             ready_table.cursor_type = "row"
-            ready_table.add_columns("Task", "Owner", "Scope", "Deps")
+            ready_table.add_columns("Task", "Agent", "Scope", "Deps")
 
             agents_table = self.query_one("#agents_table", DataTable)
             agents_table.border_title = "Running Agents"
@@ -2046,8 +2023,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             task_table = self.query_one("#task_table", DataTable)
             task_table.zebra_stripes = True
             task_table.cursor_type = "row"
-            task_table.add_columns(
-                "Task", "Title", "Owner", "Scope", "Status", "Spec", "Deps")
+            task_table.add_columns("Task", "Title", "Status", "Spec", "Deps")
 
             log_table = self.query_one("#log_table", DataTable)
             log_table.zebra_stripes = True
@@ -2168,9 +2144,6 @@ def cmd_select_stop(args: argparse.Namespace) -> None:
     selected: list[dict[str, Any]] = []
     if args.task:
         selected = [w for w in workers if w["task_id"] == args.task]
-    elif args.owner:
-        want = owner_key(args.owner)
-        selected = [w for w in workers if owner_key(w["owner"]) == want]
     elif args.all:
         selected = workers
 
@@ -2267,7 +2240,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_stop = sub.add_parser("select-stop")
     add_common(p_stop)
     p_stop.add_argument("--task")
-    p_stop.add_argument("--owner")
     p_stop.add_argument("--all", action="store_true")
     p_stop.add_argument("--format", choices=["json", "tsv"], default="json")
     p_stop.set_defaults(fn=cmd_select_stop)
@@ -2285,9 +2257,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if getattr(args, "cmd", "") == "select-stop":
-        selected = [bool(args.task), bool(args.owner), bool(args.all)]
+        selected = [bool(args.task), bool(args.all)]
         if sum(selected) != 1:
-            die("select-stop requires exactly one of --task, --owner, --all")
+            die("select-stop requires exactly one of --task, --all")
 
     try:
         args.fn(args)

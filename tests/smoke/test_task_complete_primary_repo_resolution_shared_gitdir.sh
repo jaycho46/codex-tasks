@@ -31,9 +31,9 @@ git -C "$REPO" commit -q -m "chore: add codex-tasks scripts"
 cat > "$REPO/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Owner | Deps | Notes | Status |
-|---|---|---|---|---|---|
-| T8-002 | Shared gitdir complete flow | AgentA | - | primary repo resolution regression | TODO |
+| ID | Title | Deps | Notes | Status |
+|---|---|---|---|---|
+| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | TODO |
 EOF
 git -C "$REPO" add TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -58,7 +58,7 @@ git -C "$WT" commit -q -m "feat: deliver T8-002"
 git -C "$WT" add TODO.md
 git -C "$WT" commit -q -m "chore: mark T8-002 done"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA app-shell T8-002 --summary "shared gitdir complete flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.state" task complete AgentA task-t8-002 T8-002 --summary "shared gitdir complete flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary"
@@ -78,7 +78,7 @@ if [[ -d "$WT" ]]; then
   exit 1
 fi
 
-grep -q "| T8-002 | Shared gitdir complete flow | AgentA | - | primary repo resolution regression | DONE |" "$REPO/TODO.md"
+grep -q "| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | DONE |" "$REPO/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
 echo "$LAST_SUBJECT" | grep -q "chore: mark T8-002 done"
