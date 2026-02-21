@@ -27,10 +27,10 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 4. Do not finish with generic summaries such as `task complete` or `done`.
 5. Keep work scoped to the assigned task title and owner scope.
 6. Do not manually edit lock/pid metadata files.
-7. Commit all task changes (deliverables + TODO/status updates) before `codex-tasks task complete`, then use `task complete` as the last command for merge/worktree cleanup.
+7. Commit all tracked deliverable changes before `codex-tasks task complete`, then use `task complete` as the last command for merge/worktree cleanup.
 8. If completion fails due to merge/rebase conflicts, try to resolve conflicts and re-run `task complete`; report `BLOCKED` only if it remains unresolved.
 9. For newly requested tasks, create them with `codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>` and fully populate the generated spec before scheduling.
-10. During planning, after writing or updating TODO items, always ask the user whether to create a commit; do not run `git commit` until the user explicitly confirms.
+10. Treat TODO/spec planning updates as local workflow state by default; do not create planning-only commits unless the user explicitly requests it.
 
 ## Task Authoring (New Task)
 
@@ -47,7 +47,7 @@ When asked to create a new task, use this flow:
      - which tests or checks must run
      - exact command(s) to run
      - expected pass condition/output
-4. After TODO/spec planning updates are written, ask the user if they want those planning changes committed; wait for explicit confirmation before any commit.
+4. Do not create planning-only commits after `task new`; continue to scheduling once spec content is complete, unless the user explicitly requests a commit.
 5. Only start scheduling after spec content is complete:
    - `codex-tasks run start --dry-run`
 
@@ -60,14 +60,15 @@ When asked to create a new task, use this flow:
 4. Verify changed files include deliverables:
    - `git status --short`
 5. Commit message rules:
-   - Deliverable commits: `<type>: <summary> (<task_id>)` where `<type>` is one of `feat|fix|refactor|docs|test|chore`
-   - Final DONE marker commit: `chore: mark <task_id> done`
+   - Deliverable commits: `<type>: <summary>` where `<type>` is one of `feat|fix|refactor|docs|test|chore`
+   - A single task may include multiple deliverable commits; keep each commit focused and meaningful.
 6. After final verification, mark task DONE with a specific summary:
    - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" DONE "<what was delivered>"`
-7. Commit everything for the task:
-   - `git add -A && git commit -m "chore: mark <task_id> done"`
+7. Commit tracked deliverable changes (if any) before completion:
+   - `git add <changed-files> && git commit -m "<type>: <summary>"`
+   - Do not create empty marker commits just to signal DONE.
 8. As the final command, use task complete for merge and worktree cleanup (or omit summary to use the default completion log text):
-   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task complete "<agent>" "<scope>" "<task_id>" --summary "<what was delivered>"`
+   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task complete "<agent>" "<task_id>" --summary "<what was delivered>"`
 
 ## Merge Failure Handling
 

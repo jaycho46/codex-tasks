@@ -21,9 +21,10 @@ Execution rules:
 - After final verification, mark the task DONE with a specific summary:
   __CODEX_TASKS_CMD__ --repo "__WORKTREE_PATH__" --state-dir "__STATE_DIR__" task update "__AGENT__" "__TASK_ID__" DONE "what was delivered"__TASK_BRANCH_FLAG__
 - Commit message rules:
-  - Deliverable commits: <type>: <summary> (__TASK_ID__) where <type> is one of feat|fix|refactor|docs|test|chore
+  - Deliverable commits: <type>: <summary> where <type> is one of feat|fix|refactor|docs|test|chore
+  - A single task may include multiple deliverable commits; keep each commit focused and meaningful.
 - Commit tracked deliverable changes before task complete (if any):
-  git add <changed-files> && git commit -m "<type>: <summary> (__TASK_ID__)"
+  git add <changed-files> && git commit -m "<type>: <summary>"
 - Do not create empty marker commits just to signal DONE.
 - Use task complete as the final command to perform merge and worktree cleanup.
 - When complete, finish with a meaningful summary (or omit --summary to use the default completion log text):
