@@ -865,6 +865,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ("q", "close_modal", "Close"),
             ("enter", "close_modal", "Close"),
             ("tab", "toggle_view", "Toggle View"),
+            ("a", "toggle_auto_scroll", "Auto-Scroll"),
             ("up", "scroll_up", "Scroll Up"),
             ("down", "scroll_down", "Scroll Down"),
             ("pageup", "scroll_page_up", "Page Up"),
@@ -883,21 +884,37 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.tmux_session = str(worker.get("tmux_session") or "").strip()
             self.log_file = str(worker.get("log_file") or "").strip()
             self.view_mode = "structured"
+            self.auto_scroll_enabled = True
             self.last_parse_source = "transcript"
             self.last_parsed_events = 0
             self.spinner_tick = 0
+
+        def _auto_scroll_button_label(self) -> str:
+            state = "ON" if self.auto_scroll_enabled else "OFF"
+            return f"Auto-scroll: {state} (A)"
+
+        def _set_auto_scroll_button_label(self) -> None:
+            try:
+                button = self.query_one("#toggle_auto_scroll", Button)
+                button.label = self._auto_scroll_button_label()
+            except Exception:
+                pass
 
         def _build_meta_text(self) -> str:
             backend_display = self.launch_backend or "N/A"
             session_display = self.tmux_session or "N/A"
             log_display = self.log_file or "N/A"
+            view_display = self.view_mode
+            auto_scroll_display = "ON" if self.auto_scroll_enabled else "OFF"
             return (
                 f"Agent: {self.owner}\n"
                 f"Task: {self.task_id}\n"
                 f"PID: {self.pid}\n"
                 f"Backend: {backend_display}\n"
                 f"Session: {session_display}\n"
-                f"Log: {log_display}"
+                f"Log: {log_display}\n"
+                f"View: {view_display}\n"
+                f"Auto-scroll: {auto_scroll_display}"
             )
 
         def compose(self) -> ComposeResult:
@@ -910,9 +927,11 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                             yield Static(Text("Loading session output..."), id="agent_session_body_raw")
                     with Horizontal(id="agent_session_footer"):
                         yield Static(Text(self._build_meta_text(), style="bold #dce9ff"), id="agent_session_meta")
+                        yield Button(self._auto_scroll_button_label(), id="toggle_auto_scroll")
                         yield Button("Close (Enter/Esc)", id="close")
 
         def on_mount(self) -> None:
+            self._set_auto_scroll_button_label()
             self._refresh_body()
             self.set_interval(0.33, self._refresh_body)
             self._focus_active_scroll()
@@ -1218,6 +1237,8 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 pass
 
         def _scroll_to_latest(self) -> None:
+            if not self.auto_scroll_enabled:
+                return
             try:
                 self._active_scroll().scroll_end(animate=False, force=True, immediate=True)
             except Exception:
@@ -1321,6 +1342,13 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.view_mode = "raw" if self.view_mode == "structured" else "structured"
             self._refresh_body()
 
+        def action_toggle_auto_scroll(self) -> None:
+            self.auto_scroll_enabled = not self.auto_scroll_enabled
+            self._set_auto_scroll_button_label()
+            if self.auto_scroll_enabled:
+                self._scroll_to_latest()
+            self._set_meta()
+
         def action_scroll_up(self) -> None:
             self._active_scroll().scroll_relative(y=-3, animate=False)
 
@@ -1343,6 +1371,9 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.dismiss(None)
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "toggle_auto_scroll":
+                self.action_toggle_auto_scroll()
+                return
             if event.button.id == "close":
                 self.dismiss(None)
 
