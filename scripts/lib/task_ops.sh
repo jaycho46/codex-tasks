@@ -473,6 +473,7 @@ cmd_task_scaffold_specs() {
 
   local target_task=""
   local target_branch=""
+  local include_subtasks=0
   local dry_run=0
   local force=0
 
@@ -491,6 +492,9 @@ cmd_task_scaffold_specs() {
       --branch=*)
         target_branch="${1#--branch=}"
         [[ -n "$target_branch" ]] || die "Missing value for --branch"
+        ;;
+      --multi-agent)
+        include_subtasks=1
         ;;
       --dry-run)
         dry_run=1
@@ -613,10 +617,20 @@ Define the concrete outcome for $row_task_id.
 - List files, modules, or behaviors that are in scope.
 
 ## Acceptance Criteria
-- [ ] Implementation is complete and testable.
-- [ ] Relevant tests or validation steps are added or updated.
-- [ ] Changes are ready to merge with a clear completion summary.
+- Implementation is complete and testable.
+- Relevant tests or validation steps are added or updated.
+- Changes are ready to merge with a clear completion summary.
 EOF
+    if [[ "$include_subtasks" -eq 1 ]]; then
+      cat >> "$spec_abs" <<EOF
+
+## Subtasks
+- Primary implementation step
+- Review changed files and identify risks
+- Address review findings and regressions
+- Polish docs/tests/refactors within scope
+EOF
+    fi
     echo "[OK] wrote: $spec_rel"
     generated=$((generated + 1))
   done <<< "$selected_rows"
@@ -631,6 +645,7 @@ cmd_task_new() {
   local task_id="${1:-}"
   shift || true
   local task_branch=""
+  local enable_multi_agent=0
   local deps_raw="-"
   local -a summary_parts=()
   local summary=""
@@ -655,6 +670,9 @@ cmd_task_new() {
         task_branch="${1#--branch=}"
         [[ -n "$task_branch" ]] || die "Missing value for --branch"
         ;;
+      --multi-agent)
+        enable_multi_agent=1
+        ;;
       --)
         shift || true
         while [[ $# -gt 0 ]]; do
@@ -674,8 +692,7 @@ cmd_task_new() {
   done
 
   summary="$(trim "${summary_parts[*]:-}")"
-
-  [[ -n "$task_id" && -n "$summary" && -n "$task_branch" ]] || die "Usage: codex-tasks task new <task_id> --branch <base_branch> [--deps <task_id[,task_id...]>] <summary>"
+  [[ -n "$task_id" && -n "$summary" && -n "$task_branch" ]] || die "Usage: codex-tasks task new <task_id> --branch <base_branch> [--multi-agent] [--deps <task_id[,task_id...]>] <summary>"
   [[ "$task_id" != *"|"* ]] || die "task_id must not contain '|': $task_id"
   git -C "$REPO_ROOT" check-ref-format --branch "$task_branch" >/dev/null 2>&1 || die "Invalid branch name: $task_branch"
 
@@ -865,7 +882,11 @@ PY
   fi
 
   local new_task_id="$task_id"
-  cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch"
+  if [[ "$enable_multi_agent" -eq 1 ]]; then
+    cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch" --multi-agent
+  else
+    cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch"
+  fi
   echo "Created task: branch=$task_branch id=$new_task_id title=$summary"
 }
 
@@ -2433,9 +2454,10 @@ build_codex_worker_prompt() {
   local goal_summary="${9:-}"
   local in_scope_summary="${10:-}"
   local acceptance_summary="${11:-}"
-  local task_branch="${12:-}"
+  local subtasks_summary="${12:-}"
+  local task_branch="${13:-}"
   local rules_file rendered_rules worker_cli_bin worker_cli_cmd branch_flag
-  local spec_path_display
+  local spec_path_display subtasks_summary_display
 
   if [[ -n "${SCRIPT_DIR:-}" ]]; then
     rules_file="$SCRIPT_DIR/prompts/codex-worker-rules.md"
@@ -2468,6 +2490,8 @@ build_codex_worker_prompt() {
 
   spec_path_display="${spec_path:-N/A}"
   rendered_rules="${rendered_rules//__TASK_SPEC_PATH__/$spec_path_display}"
+  subtasks_summary_display="${subtasks_summary:-N/A (subtasks are optional unless multi-agent mode is enabled)}"
+  rendered_rules="${rendered_rules//__SUBTASKS_SUMMARY__/$subtasks_summary_display}"
 
   cat <<PROMPT
 Task assignment: ${task_id} (${task_title})
@@ -2483,6 +2507,7 @@ Task brief:
 - Goal: ${goal_summary}
 - In Scope: ${in_scope_summary}
 - Acceptance Criteria: ${acceptance_summary}
+- Subtasks: ${subtasks_summary_display}
 
 The task spec file is the source of truth for implementation details.
 
@@ -2545,6 +2570,39 @@ has_codex_json_flag() {
   return 1
 }
 
+has_codex_reasoning_effort_config() {
+  local -a flags=("$@")
+  local idx=0
+  local total="${#flags[@]}"
+  local token value
+  while (( idx < total )); do
+    token="${flags[$idx]}"
+    case "$token" in
+      --config|-c)
+        if (( idx + 1 < total )); then
+          value="${flags[$((idx + 1))]}"
+          if [[ "$value" == model_reasoning_effort=* ]]; then
+            return 0
+          fi
+        fi
+        idx=$((idx + 2))
+        continue
+        ;;
+      --config=*|-c=*)
+        value="${token#--config=}"
+        if [[ "$token" == -c=* ]]; then
+          value="${token#-c=}"
+        fi
+        if [[ "$value" == model_reasoning_effort=* ]]; then
+          return 0
+        fi
+        ;;
+    esac
+    idx=$((idx + 1))
+  done
+  return 1
+}
+
 spawn_exit_cleanup_watcher() {
   local task_id="${1:-}"
   local task_branch="${2:-}"
@@ -2589,6 +2647,7 @@ launch_codex_tmux_worker() {
   local goal_summary="${10:-}"
   local in_scope_summary="${11:-}"
   local acceptance_summary="${12:-}"
+  local subtasks_summary="${13:-}"
 
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
@@ -2653,8 +2712,11 @@ launch_codex_tmux_worker() {
   if ! has_codex_json_flag "${codex_flags[@]}"; then
     codex_flags+=(--json)
   fi
+  if ! has_codex_reasoning_effort_config "${codex_flags[@]}"; then
+    codex_flags+=(--config 'model_reasoning_effort="high"')
+  fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$task_branch")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$subtasks_summary" "$task_branch")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -2757,6 +2819,7 @@ launch_codex_exec_worker() {
   local goal_summary="${10:-}"
   local in_scope_summary="${11:-}"
   local acceptance_summary="${12:-}"
+  local subtasks_summary="${13:-}"
 
   [[ -n "$task_id" && -n "$owner" && -n "$scope" && -n "$agent" && -n "$worktree_path" ]] || return 1
   command -v codex >/dev/null 2>&1 || die "codex command not found. Install Codex CLI or use --no-launch."
@@ -2820,8 +2883,11 @@ launch_codex_exec_worker() {
   if ! has_codex_color_flag "${codex_flags[@]}"; then
     codex_flags+=(--color always)
   fi
+  if ! has_codex_reasoning_effort_config "${codex_flags[@]}"; then
+    codex_flags+=(--config 'model_reasoning_effort="high"')
+  fi
 
-  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$task_branch")"
+  prompt="$(build_codex_worker_prompt "$task_id" "$task_title" "$owner" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$subtasks_summary" "$task_branch")"
   primary_repo="$(primary_repo_root_for "$worktree_path" || true)"
 
   local -a codex_cmd=(codex exec)
@@ -3100,7 +3166,7 @@ cmd_run_start() {
   ready_tsv="$("$PYTHON_BIN" "$PY_ENGINE" "${ready_cmd[@]}" --format tsv)"
 
   local started_count=0
-  while IFS=$'\t' read -r task_id task_branch task_base_branch task_title agent_name scope deps status spec_path goal_summary in_scope_summary acceptance_summary; do
+  while IFS=$'\t' read -r task_id task_branch task_base_branch task_title agent_name scope deps status spec_path goal_summary in_scope_summary acceptance_summary subtasks_summary; do
     [[ "$task_id" == "__EMPTY__" ]] && task_id=""
     [[ "$task_branch" == "__EMPTY__" ]] && task_branch=""
     [[ "$task_base_branch" == "__EMPTY__" ]] && task_base_branch=""
@@ -3113,6 +3179,7 @@ cmd_run_start() {
     [[ "$goal_summary" == "__EMPTY__" ]] && goal_summary=""
     [[ "$in_scope_summary" == "__EMPTY__" ]] && in_scope_summary=""
     [[ "$acceptance_summary" == "__EMPTY__" ]] && acceptance_summary=""
+    [[ "$subtasks_summary" == "__EMPTY__" ]] && subtasks_summary=""
     [[ -n "${task_id:-}" ]] || continue
 
     local agent summary start_output worktree_path
@@ -3164,11 +3231,11 @@ cmd_run_start() {
     if [[ "$no_launch" -eq 0 ]]; then
       local launch_ok=0
       if [[ "$launch_backend" == "tmux" ]]; then
-        if launch_codex_tmux_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_tmux_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$subtasks_summary"; then
           launch_ok=1
         fi
       else
-        if launch_codex_exec_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary"; then
+        if launch_codex_exec_worker "$task_id" "$task_branch" "$task_title" "$agent_name" "$scope" "$agent" "$trigger" "$worktree_path" "$spec_path" "$goal_summary" "$in_scope_summary" "$acceptance_summary" "$subtasks_summary"; then
           launch_ok=1
         fi
       fi

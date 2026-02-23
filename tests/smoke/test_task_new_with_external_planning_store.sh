@@ -32,7 +32,7 @@ echo "$OUT_INIT"
 echo "$OUT_INIT" | grep -q "State dir is outside repository; skip .gitignore update:"
 
 BASE_BRANCH="$(git -C "$REPO" symbolic-ref --quiet --short HEAD)"
-OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new 901 --branch "$BASE_BRANCH" "External planning task")"
+OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new 901 --branch "$BASE_BRANCH" --multi-agent "External planning task")"
 echo "$OUT_NEW"
 echo "$OUT_NEW" | grep -q "Added task to TODO board: 901"
 echo "$OUT_NEW" | grep -q "Created task: branch=$BASE_BRANCH id=901"
@@ -45,6 +45,11 @@ test -f "$SPEC_FILE"
 grep -q "^## Goal$" "$SPEC_FILE"
 grep -q "^## In Scope$" "$SPEC_FILE"
 grep -q "^## Acceptance Criteria$" "$SPEC_FILE"
+grep -q "^## Subtasks$" "$SPEC_FILE"
+if grep -q "^owner=" "$SPEC_FILE"; then
+  echo "owner metadata should not be present in scaffolded spec"
+  exit 1
+fi
 
 OUT_READY="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" run start --dry-run --trigger smoke-external-planning --max-start 0)"
 echo "$OUT_READY"

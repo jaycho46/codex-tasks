@@ -35,10 +35,16 @@ class TaskSpecTests(unittest.TestCase):
                         "- endpoint implementation",
                         "",
                         "## Acceptance Criteria",
-                        "- [ ] endpoint handles auth",
-                        "- [ ] endpoint validates body",
-                        "- [ ] tests are added",
-                        "- [ ] rollout notes are documented",
+                        "- endpoint handles auth",
+                        "- endpoint validates body",
+                        "- tests are added",
+                        "- rollout notes are documented",
+                        "",
+                        "## Subtasks",
+                        "- Implement endpoint and auth wiring",
+                        "- Review API contract and tests",
+                        "- Fix regressions found in review",
+                        "- Polish docs and cleanup",
                     ]
                 )
                 + "\n",
@@ -53,6 +59,13 @@ class TaskSpecTests(unittest.TestCase):
             self.assertEqual(
                 result["acceptance_summary"],
                 "endpoint handles auth; endpoint validates body; tests are added",
+            )
+            self.assertEqual(
+                result["subtasks_summary"],
+                "Implement endpoint and auth wiring; "
+                "Review API contract and tests; "
+                "Fix regressions found in review; "
+                "Polish docs and cleanup",
             )
 
     def test_invalid_spec_missing_required_section(self) -> None:
@@ -97,7 +110,7 @@ class TaskSpecTests(unittest.TestCase):
                         "## In Scope",
                         "",
                         "## Acceptance Criteria",
-                        "- [ ] done",
+                        "- done",
                     ]
                 )
                 + "\n",
@@ -108,6 +121,35 @@ class TaskSpecTests(unittest.TestCase):
             self.assertTrue(result["exists"])
             self.assertFalse(result["valid"])
             self.assertTrue(any("empty_sections" in err for err in result["errors"]))
+
+    def test_checkbox_items_not_supported_in_required_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td)
+            spec_path = repo_root / task_spec_rel_path("T4-002")
+            spec_path.parent.mkdir(parents=True, exist_ok=True)
+            spec_path.write_text(
+                "\n".join(
+                    [
+                        "# Task Spec: T4-002",
+                        "",
+                        "## Goal",
+                        "Goal text",
+                        "",
+                        "## In Scope",
+                        "- in scope item",
+                        "",
+                        "## Acceptance Criteria",
+                        "- [ ] done",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = evaluate_task_spec(repo_root, "T4-002")
+            self.assertTrue(result["exists"])
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("empty_sections: Acceptance Criteria" in err for err in result["errors"]))
 
     def test_custom_spec_dir_absolute_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -128,7 +170,7 @@ class TaskSpecTests(unittest.TestCase):
                         "- scope item",
                         "",
                         "## Acceptance Criteria",
-                        "- [ ] done",
+                        "- done",
                     ]
                 )
                 + "\n",
@@ -159,7 +201,7 @@ class TaskSpecTests(unittest.TestCase):
                         "- scope item",
                         "",
                         "## Acceptance Criteria",
-                        "- [ ] done",
+                        "- done",
                     ]
                 )
                 + "\n",

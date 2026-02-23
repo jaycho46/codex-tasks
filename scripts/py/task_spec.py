@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any
 
 REQUIRED_SECTIONS = ("Goal", "In Scope", "Acceptance Criteria")
+SUMMARY_SECTIONS = REQUIRED_SECTIONS + ("Subtasks",)
 
 _HEADING_RE = re.compile(r"^\s{0,3}#{2,6}\s+(.+?)\s*$")
-_CHECKBOX_RE = re.compile(r"^[-*+]\s+\[[ xX]\]\s*(.+)$")
+_CHECKBOX_PREFIX_RE = re.compile(r"^[-*+]\s+\[[ xX]\]\s*")
 _LIST_ITEM_RE = re.compile(r"^(?:[-*+]\s+|\d+\.\s+)(.+)$")
 
 
@@ -53,9 +54,6 @@ def _normalize_summary_text(text: str) -> str:
 
 def _strip_item_prefix(line: str) -> str:
     raw = line.strip()
-    checkbox = _CHECKBOX_RE.match(raw)
-    if checkbox:
-        return checkbox.group(1).strip()
     list_item = _LIST_ITEM_RE.match(raw)
     if list_item:
         return list_item.group(1).strip()
@@ -63,7 +61,7 @@ def _strip_item_prefix(line: str) -> str:
 
 
 def _extract_sections(text: str) -> tuple[dict[str, str], set[str]]:
-    buckets: dict[str, list[str]] = {name: [] for name in REQUIRED_SECTIONS}
+    buckets: dict[str, list[str]] = {name: [] for name in SUMMARY_SECTIONS}
     present: set[str] = set()
     current: str | None = None
 
@@ -86,6 +84,8 @@ def _extract_sections(text: str) -> tuple[dict[str, str], set[str]]:
 
 def _first_nonempty_line(section: str) -> str:
     for line in section.splitlines():
+        if _CHECKBOX_PREFIX_RE.match(line.strip()):
+            continue
         cleaned = _strip_item_prefix(line)
         if cleaned:
             return _normalize_summary_text(cleaned)
@@ -98,14 +98,39 @@ def _acceptance_summary(section: str) -> str:
         stripped = line.strip()
         if not stripped:
             continue
+        if _CHECKBOX_PREFIX_RE.match(stripped):
+            continue
 
         cleaned = _strip_item_prefix(stripped)
         if not cleaned:
             continue
 
-        if _CHECKBOX_RE.match(stripped) or _LIST_ITEM_RE.match(stripped):
+        if _LIST_ITEM_RE.match(stripped):
             items.append(cleaned)
             if len(items) >= 3:
+                break
+
+    if items:
+        return _normalize_summary_text("; ".join(items))
+    return _first_nonempty_line(section)
+
+
+def _subtasks_summary(section: str) -> str:
+    items: list[str] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _CHECKBOX_PREFIX_RE.match(stripped):
+            continue
+
+        cleaned = _strip_item_prefix(stripped)
+        if not cleaned:
+            continue
+
+        if _LIST_ITEM_RE.match(stripped):
+            items.append(cleaned)
+            if len(items) >= 4:
                 break
 
     if items:
@@ -133,6 +158,7 @@ def evaluate_task_spec(
         "goal_summary": "",
         "in_scope_summary": "",
         "acceptance_summary": "",
+        "subtasks_summary": "",
     }
 
     if not spec_path.exists():
@@ -173,5 +199,6 @@ def evaluate_task_spec(
     result["acceptance_summary"] = _acceptance_summary(
         sections.get("Acceptance Criteria", "")
     )
+    result["subtasks_summary"] = _subtasks_summary(sections.get("Subtasks", ""))
     result["valid"] = True
     return result

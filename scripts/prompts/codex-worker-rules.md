@@ -12,6 +12,15 @@ Execution rules:
 - Task lifecycle contract: this task was started by run start, and must end via task complete.
 - Do not self-start work using task lock/task update/worktree start.
 - Read and follow the task spec file at `__TASK_SPEC_PATH__` before implementing.
+- If `## Subtasks` exists in the spec, use it as the execution plan for multi-agent delegation.
+- For delegation, use this instruction style to trigger automatic multi-agent behavior:
+  - "Spawn one agent per point/subtask, wait for all of them, and summarize the result for each point/subtask."
+- In that mode:
+  - spawn at least one subagent per concrete subtask
+  - assign explicit ownership (files/responsibility) in each subagent prompt
+  - wait for subagent results, review outputs, and integrate only valid changes
+  - if a subtask is unclear, refine it first in the spec context, then delegate
+- Subtask summary from spec: __SUBTASKS_SUMMARY__
 - Do not mark DONE unless task deliverable files were actually added or updated.
 - Do not finish with generic summaries such as "task complete" or "done".
 - Keep work scoped to the assigned task title and task scope.

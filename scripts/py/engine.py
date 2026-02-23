@@ -323,6 +323,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "goal_summary": str(spec.get("goal_summary") or ""),
                 "in_scope_summary": str(spec.get("in_scope_summary") or ""),
                 "acceptance_summary": str(spec.get("acceptance_summary") or ""),
+                "subtasks_summary": str(spec.get("subtasks_summary") or ""),
             }
         )
 
@@ -366,6 +367,7 @@ def cmd_ready(args: argparse.Namespace) -> None:
                         f(task.get("goal_summary", "")),
                         f(task.get("in_scope_summary", "")),
                         f(task.get("acceptance_summary", "")),
+                        f(task.get("subtasks_summary", "")),
                     ]
                 )
             )

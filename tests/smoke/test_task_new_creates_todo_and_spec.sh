@@ -48,6 +48,10 @@ test -f "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Goal$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## In Scope$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Acceptance Criteria$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
+if grep -q "^## Subtasks$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"; then
+  echo "Subtasks should not be scaffolded by default when multi-agent is disabled"
+  exit 1
+fi
 
 OUT_READY="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new --max-start 0)"
 echo "$OUT_READY"
@@ -76,5 +80,9 @@ echo "$OUT_DUP_OK" | grep -q "Added task to TODO board: 321"
 echo "$OUT_DUP_OK" | grep -q "Created task: branch=$OTHER_BRANCH id=321"
 grep -q "| 321 | $OTHER_BRANCH | Same id on another branch | $BASE_BRANCH:320 |  | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
 test -f "$REPO/.codex-tasks/planning/specs/$OTHER_BRANCH/321.md"
+if grep -q "^owner=" "$REPO/.codex-tasks/planning/specs/$OTHER_BRANCH/321.md"; then
+  echo "owner metadata should not be present in scaffolded specs"
+  exit 1
+fi
 
 echo "task new creates todo and spec smoke test passed"

@@ -5,8 +5,8 @@ This workflow turns TODO rows into executable task specs so workers do not run f
 ## Quick Checklist
 
 1. Initialize repository state.
-2. Create tasks with `task new`.
-3. Fill required sections in each spec.
+2. Create feature-branch tasks with `task new`.
+3. Fill required sections and concrete subtasks in each spec.
 4. Confirm readiness with a dry-run scheduler check.
 5. Start scheduler.
 
@@ -14,14 +14,14 @@ This workflow turns TODO rows into executable task specs so workers do not run f
 # 1) initialize
 codex-tasks init
 
-# 2) create task row + spec template together
-codex-tasks task new 101 --branch main "Billing webhook retry policy"
+# 2) create feature task row + spec template together
+codex-tasks task new 101 --branch feature/billing-retry "Billing webhook retry policy"
 
 # optional: same-branch dependency uses 3-digit id
-codex-tasks task new 102 --branch main --deps 101 "Billing webhook retry jitter tuning"
+codex-tasks task new 102 --branch feature/billing-retry --deps 101 "Review billing retry policy implementation"
 
 # optional: cross-branch dependency uses <branch>:<id>
-codex-tasks task new 103 --branch release/1.0 --deps main:101 "Release hardening"
+codex-tasks task new 103 --branch release/1.0 --deps feature/billing-retry:101 "Release hardening"
 
 # 3) edit generated files in .codex-tasks/planning/specs/<branch>/*.md
 
@@ -47,14 +47,21 @@ Use the standard table shape:
 Recommended path:
 
 ```bash
-codex-tasks task new 101 --branch main "Billing webhook retry policy"
+codex-tasks task new 101 --branch feature/billing-retry "Billing webhook retry policy"
+```
+
+If this task will run with multi-agent delegation, add `--multi-agent`:
+
+```bash
+codex-tasks task new 101 --branch feature/billing-retry --multi-agent "Billing webhook retry policy"
 ```
 
 What this does:
 
 - appends a `TODO` row to `.codex-tasks/planning/TODO.md`
-- records prerequisites in `Deps` when `--deps` is provided (same-branch `101` or cross-branch `main:101`)
-- creates `.codex-tasks/planning/specs/main/101.md`
+- records prerequisites in `Deps` when `--deps` is provided (same-branch `101` or cross-branch `<branch>:101`)
+- creates `.codex-tasks/planning/specs/<branch>/101.md`
+- adds `## Subtasks` template only when `--multi-agent` is provided
 
 ## Generate Specs (Bulk / Existing TODO Rows)
 
@@ -76,13 +83,19 @@ Generate a specific task only:
 codex-tasks task scaffold-specs --task 101 --branch main
 ```
 
+Generate spec template with `## Subtasks` for multi-agent execution:
+
+```bash
+codex-tasks task scaffold-specs --task 101 --branch main --multi-agent
+```
+
 Overwrite an existing spec:
 
 ```bash
 codex-tasks task scaffold-specs --task 101 --branch main --force
 ```
 
-## Required Spec Sections
+## Required and Recommended Spec Sections
 
 Each `.codex-tasks/planning/specs/<BRANCH>/<TASK_ID>.md` file must include these exact section headings:
 
@@ -90,12 +103,17 @@ Each `.codex-tasks/planning/specs/<BRANCH>/<TASK_ID>.md` file must include these
 - `## In Scope`
 - `## Acceptance Criteria`
 
+Recommended for worker quality and multi-agent delegation:
+
+- `## Subtasks` with concrete list items (only for multi-agent mode)
+
 Template:
 
 ```md
 # Task Spec: 101
 
 Task title: Billing webhook retry policy
+Task branch: feature/billing-retry
 
 ## Goal
 Define the concrete outcome for 101.
@@ -105,9 +123,15 @@ Define the concrete outcome for 101.
 - List files, modules, or behaviors that are in scope.
 
 ## Acceptance Criteria
-- [ ] Implementation is complete and testable.
-- [ ] Relevant tests or validation steps are added or updated.
-- [ ] Changes are ready to merge with a clear completion summary.
+- Implementation is complete and testable.
+- Relevant tests or validation steps are added or updated.
+- Changes are ready to merge with a clear completion summary.
+
+## Subtasks
+- Implement billing retry policy
+- Review changed files and list risks
+- Fix review findings and regressions
+- Polish tests/docs/refactors within scope
 ```
 
 ## Strong Migration Warning

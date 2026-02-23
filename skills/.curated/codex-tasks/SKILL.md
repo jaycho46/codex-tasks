@@ -29,7 +29,7 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 6. Do not manually edit lock/pid metadata files.
 7. Commit all tracked deliverable changes before `codex-tasks task complete`, then use `task complete` as the last command for merge/worktree cleanup.
 8. If completion fails due to merge/rebase conflicts, try to resolve conflicts and re-run `task complete`; report `BLOCKED` only if it remains unresolved.
-9. For newly requested tasks, create them with `codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>` and fully populate the generated spec before scheduling.
+9. For newly requested tasks, create them with `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] <summary>` and fully populate the generated spec before scheduling.
 10. Treat TODO/spec planning updates as local workflow state by default; do not create planning-only commits unless the user explicitly requests it.
 
 ## Task Authoring (New Task)
@@ -37,12 +37,14 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 When asked to create a new task, use this flow:
 
 1. Create task row + spec template in one command:
-   - `codex-tasks task new <task_id> [--deps <task_id[,task_id...]>] <summary>`
+   - `codex-tasks task new <task_id> --branch <feature_branch> [--multi-agent] [--deps <task_id[,task_id...]>] <summary>`
    - If the task has prerequisites, pass prerequisite task ids with `--deps` (for example: `--deps T2-100,T2-099`).
 2. Confirm the generated spec file exists:
-   - `tasks/specs/<task_id>.md`
+   - `.codex-tasks/planning/specs/<branch>/<task_id>.md`
 3. Fill the generated form completely (do not leave template placeholders):
    - Keep exact headings: `## Goal`, `## In Scope`, `## Acceptance Criteria`
+   - Fill `## Subtasks` only when using `--multi-agent` during task/spec scaffolding
+   - In multi-agent mode, write concrete list entries (one execution unit per subagent)
    - Add concrete test/validation details in `## Acceptance Criteria`:
      - which tests or checks must run
      - exact command(s) to run

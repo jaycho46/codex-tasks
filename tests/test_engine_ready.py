@@ -58,8 +58,8 @@ def _write_specs(repo_root: Path, task_ids: list[str]) -> None:
                     "- implement task behavior",
                     "",
                     "## Acceptance Criteria",
-                    "- [ ] criteria one",
-                    "- [ ] criteria two",
+                    "- criteria one",
+                    "- criteria two",
                 ]
             )
             + "\n",
@@ -365,7 +365,7 @@ class EngineReadyTests(unittest.TestCase):
                         "- scope",
                         "",
                         "## Acceptance Criteria",
-                        "- [ ] done",
+                        "- done",
                     ]
                 )
                 + "\n",
