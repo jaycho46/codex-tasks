@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Running Agents overlay now opens live session details from the TUI.
   - Enter/click on a Running Agents row opens a read-only modal.
-  - tmux-backed workers show live pane capture (1s refresh).
+  - tmux-backed workers show live pane capture (0.33s refresh).
   - Legacy non-tmux sessions are shown with an unsupported message.
 - Worker launch backend default changed to `tmux`.
   - `runtime.launch_backend` now defaults to `tmux`.
