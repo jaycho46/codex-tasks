@@ -1288,6 +1288,103 @@ merge_worktree_path_for_base_branch() {
   echo "${parent_dir}/.${repo_name}-merge-${base_slug}"
 }
 
+ready_task_exists_for_base_branch() {
+  local repo_root="${1:-}"
+  local state_dir="${2:-}"
+  local base_branch="${3:-}"
+  local ready_json_file rc
+  local -a ready_cmd
+
+  [[ -n "$repo_root" && -n "$state_dir" && -n "$base_branch" ]] || return 2
+
+  ready_cmd=(ready --repo "$repo_root" --state-dir "$state_dir")
+  if [[ -n "${TEAM_CONFIG_EFFECTIVE:-}" ]]; then
+    ready_cmd+=(--config "$TEAM_CONFIG_EFFECTIVE")
+  fi
+
+  ready_json_file="$(mktemp)"
+  if ! "$PYTHON_BIN" "$PY_ENGINE" "${ready_cmd[@]}" > "$ready_json_file"; then
+    rm -f "$ready_json_file" >/dev/null 2>&1 || true
+    return 2
+  fi
+
+  if "$PYTHON_BIN" - "$base_branch" "$ready_json_file" <<'PY'
+import json
+import sys
+
+target = sys.argv[1].strip()
+payload_path = sys.argv[2]
+if not target:
+    raise SystemExit(1)
+
+try:
+    with open(payload_path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception:
+    raise SystemExit(2)
+
+for item in payload.get("ready_tasks", []):
+    task_branch = str(item.get("task_branch", "")).strip()
+    item_base = str(item.get("base_branch", "")).strip()
+    if (task_branch or item_base) == target:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+  then
+    rm -f "$ready_json_file" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  rc=$?
+  rm -f "$ready_json_file" >/dev/null 2>&1 || true
+  if [[ "$rc" -eq 1 ]]; then
+    return 1
+  fi
+  return 2
+}
+
+cleanup_merge_worktree_when_branch_idle() {
+  local primary_repo="${1:-}"
+  local state_dir="${2:-}"
+  local base_branch="${3:-}"
+  local merge_worktree_path="${4:-}"
+  local ready_rc attached_branch
+
+  [[ -n "$primary_repo" && -n "$state_dir" && -n "$base_branch" && -n "$merge_worktree_path" ]] || return 0
+  if [[ "$merge_worktree_path" == "$primary_repo" ]]; then
+    echo "Skipped merge worktree cleanup: merge path points to primary repo ($merge_worktree_path)"
+    return 0
+  fi
+
+  if ready_task_exists_for_base_branch "$primary_repo" "$state_dir" "$base_branch"; then
+    echo "Keeping merge worktree for continuing ready tasks on branch: $base_branch"
+    return 0
+  fi
+
+  ready_rc=$?
+  if [[ "$ready_rc" -eq 2 ]]; then
+    echo "[WARN] Unable to inspect ready tasks; keeping merge worktree: $merge_worktree_path"
+    return 0
+  fi
+
+  attached_branch="$(find_branch_for_worktree_path "$primary_repo" "$merge_worktree_path" || true)"
+  if [[ "$attached_branch" == "$base_branch" ]]; then
+    if git -C "$primary_repo" worktree remove --force "$merge_worktree_path" >/dev/null 2>&1; then
+      echo "Removed temporary merge worktree: $merge_worktree_path"
+    else
+      echo "[WARN] Failed to remove temporary merge worktree: $merge_worktree_path"
+    fi
+    return 0
+  fi
+
+  if [[ -n "$attached_branch" ]]; then
+    echo "Skipped merge worktree cleanup: $merge_worktree_path is attached to $attached_branch"
+  else
+    echo "Merge worktree already absent: $merge_worktree_path"
+  fi
+}
+
 acquire_task_complete_merge_lock() {
   local lock_dir="${1:-}"
   local timeout_sec="${2:-300}"
@@ -1536,6 +1633,7 @@ cmd_task_complete() {
   acquire_task_complete_merge_lock "$merge_lock_dir" "$merge_lock_timeout"
   trap 'release_task_complete_merge_lock "$merge_lock_dir"' EXIT
   merge_task_branch_into_primary "$primary_repo" "$branch_name" "$complete_base_branch" "$REPO_ROOT" "$merge_strategy" "$merge_worktree_path"
+  cleanup_merge_worktree_when_branch_idle "$primary_repo" "$STATE_DIR" "$complete_base_branch" "$merge_worktree_path"
   release_task_complete_merge_lock "$merge_lock_dir"
   trap - EXIT
 
