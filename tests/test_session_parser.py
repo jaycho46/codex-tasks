@@ -126,6 +126,37 @@ class SessionParserTests(unittest.TestCase):
         self.assertEqual(call_block.body, "Searching files")
         self.assertEqual(call_block.item_status, "completed")
 
+    def test_parse_jsonl_normalizes_collab_tool_call_blocks(self) -> None:
+        log_tail = "\n".join(
+            [
+                '{"type":"item.started","item":{"id":"item_10","type":"collab_tool_call","tool":"spawn_agent","receiver_thread_ids":[],"prompt":"Subtask 1 ownership: draft content.","agents_states":{},"status":"in_progress"}}',
+                '{"type":"item.completed","item":{"id":"item_10","type":"collab_tool_call","tool":"spawn_agent","receiver_thread_ids":["thread_1"],"prompt":"Subtask 1 ownership: draft content.","agents_states":{"thread_1":{"status":"pending_init","message":null}},"status":"completed"}}',
+                '{"type":"item.started","item":{"id":"item_11","type":"collab_tool_call","tool":"wait","receiver_thread_ids":["thread_1"],"prompt":null,"agents_states":{},"status":"in_progress"}}',
+                '{"type":"item.completed","item":{"id":"item_11","type":"collab_tool_call","tool":"wait","receiver_thread_ids":["thread_1"],"prompt":null,"agents_states":{"thread_1":{"status":"completed","message":"ok"}},"status":"completed"}}',
+            ]
+        )
+
+        parsed = parse_session_structured("", log_tail=log_tail, max_blocks=12)
+        self.assertEqual(parsed.source, "jsonl")
+        command_blocks = [block for block in parsed.blocks if block.kind == "tool_call"]
+        self.assertEqual(len(command_blocks), 2)
+
+        spawn_block = command_blocks[0]
+        self.assertEqual(spawn_block.item_type, "collab_tool_call")
+        self.assertEqual(spawn_block.item_id, "item_10")
+        self.assertEqual(spawn_block.item_status, "completed")
+        self.assertEqual(spawn_block.label, "Tool Call · spawn_agent")
+        self.assertIn("Spawning subagent", spawn_block.body)
+        self.assertIn("Subtask 1 ownership: draft content.", spawn_block.body)
+        self.assertNotIn('"sender_thread_id"', spawn_block.body)
+
+        wait_block = command_blocks[1]
+        self.assertEqual(wait_block.item_id, "item_11")
+        self.assertEqual(wait_block.item_status, "completed")
+        self.assertEqual(wait_block.label, "Tool Call · wait")
+        self.assertIn("Waiting for agents", wait_block.body)
+        self.assertIn("1/1 completed", wait_block.body)
+
     def test_parse_jsonl_summarizes_rg_search_command_with_pattern(self) -> None:
         log_tail = "\n".join(
             [

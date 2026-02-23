@@ -371,6 +371,92 @@ def _file_change_summaries(item: dict[str, Any]) -> list[str]:
     return [f"{action} {target}"]
 
 
+def _collab_tool_state_counts(item: dict[str, Any]) -> tuple[int, int, int, int]:
+    states = item.get("agents_states")
+    if not isinstance(states, dict):
+        return 0, 0, 0, 0
+
+    total = 0
+    completed = 0
+    in_progress = 0
+    failed = 0
+    for value in states.values():
+        if not isinstance(value, dict):
+            continue
+        total += 1
+        status = _normalize_item_status(value.get("status"))
+        if status in {"completed", "done", "success"}:
+            completed += 1
+        elif status in {"failed", "error", "blocked"}:
+            failed += 1
+        else:
+            in_progress += 1
+    return total, completed, in_progress, failed
+
+
+def _summarize_collab_tool_call(item: dict[str, Any]) -> str:
+    tool_name = _first_nonempty(
+        item.get("tool"),
+        item.get("name"),
+        item.get("tool_name"),
+        _pick_nested(item, "call", "name"),
+        _pick_nested(item, "function", "name"),
+    ).lower()
+    receiver_ids = item.get("receiver_thread_ids")
+    receiver_count = len(receiver_ids) if isinstance(receiver_ids, list) else 0
+    total, completed, in_progress, failed = _collab_tool_state_counts(item)
+    effective_total = total or receiver_count
+
+    prompt = _first_nonempty(item.get("prompt"), _pick_nested(item, "input", "prompt"), item.get("message"))
+    prompt_preview = ""
+    if prompt:
+        prompt_preview = _truncate(_normalize_fragment(prompt).splitlines()[0], limit=140)
+
+    if tool_name == "spawn_agent":
+        summary = "Spawning subagent"
+        if effective_total:
+            summary = f"{summary} ({effective_total})"
+        if prompt_preview:
+            summary = f"{summary} · {prompt_preview}"
+        return summary
+
+    if tool_name == "wait":
+        if effective_total:
+            status_bits = [f"{completed}/{effective_total} completed"]
+            if in_progress:
+                status_bits.append(f"{in_progress} running")
+            if failed:
+                status_bits.append(f"{failed} failed")
+            return f"Waiting for agents ({', '.join(status_bits)})"
+        return "Waiting for agents"
+
+    if tool_name == "send_input":
+        summary = "Sending input to agent"
+        if effective_total:
+            summary = f"{summary} ({effective_total})"
+        if prompt_preview:
+            summary = f"{summary} · {prompt_preview}"
+        return summary
+
+    if tool_name == "close_agent":
+        return "Closing agent"
+    if tool_name == "resume_agent":
+        return "Resuming agent"
+
+    compact_payload: dict[str, Any] = {}
+    if tool_name:
+        compact_payload["tool"] = tool_name
+    if receiver_count:
+        compact_payload["receiver_count"] = receiver_count
+    if total:
+        compact_payload["agents"] = {"total": total, "completed": completed, "running": in_progress, "failed": failed}
+    if prompt_preview:
+        compact_payload["prompt"] = prompt_preview
+    if compact_payload:
+        return _format_payload(compact_payload)
+    return ""
+
+
 def _strip_wrapped_bold(text: str) -> str:
     cleaned = _normalize_fragment(text)
     while cleaned.startswith("**") and cleaned.endswith("**") and len(cleaned) > 4:
@@ -470,9 +556,19 @@ def _event_timestamp(event: dict[str, Any]) -> str:
     )
 
 
+def _tool_name_from_value(value: Any) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        return _first_nonempty(value.get("name"), value.get("tool"), value.get("id"))
+    return ""
+
+
 def _tool_name_from_event(event: dict[str, Any]) -> str:
     return _first_nonempty(
         event.get("tool_name"),
+        _tool_name_from_value(event.get("tool")),
+        _tool_name_from_value(_pick_nested(event, "item", "tool")),
         _pick_nested(event, "tool", "name"),
         _pick_nested(event, "tool_call", "name"),
         _pick_nested(event, "call", "name"),
@@ -814,11 +910,48 @@ def _event_items_to_blocks(event: dict[str, Any], event_type: str, timestamp: st
                 )
             continue
 
+        if item_type == "collab_tool_call":
+            tool_name = _first_nonempty(
+                item.get("tool"),
+                item.get("name"),
+                item.get("tool_name"),
+                _pick_nested(item, "call", "name"),
+                _pick_nested(item, "function", "name"),
+            )
+            label = "Tool Call"
+            if tool_name:
+                label = f"{label} · {tool_name}"
+            summary = _summarize_collab_tool_call(item)
+            if not summary:
+                summary = _format_payload(
+                    item.get("input")
+                    or item.get("arguments")
+                    or {
+                        "tool": tool_name or "(unknown)",
+                        "status": status or "unknown",
+                    }
+                )
+            blocks.append(
+                SessionBlock(
+                    kind="tool_call",
+                    label=label,
+                    body=summary or "(no payload)",
+                    event_type=event_type,
+                    timestamp=timestamp,
+                    item_type=item_type,
+                    role=role or "assistant",
+                    item_id=item_id,
+                    item_status=status,
+                )
+            )
+            continue
+
         if (
             item_type.endswith("_call")
             or item_type in {"function_call", "tool_call", "web_search_call", "computer_call", "mcp_call"}
         ):
             tool_name = _first_nonempty(
+                item.get("tool"),
                 item.get("name"),
                 item.get("tool_name"),
                 _pick_nested(item, "call", "name"),
@@ -1205,17 +1338,17 @@ def _normalize_cli_view_blocks(blocks: list[SessionBlock], max_blocks: int) -> l
 
         if (
             block.kind == "tool_call"
-            and block.item_type in {"command_execution", "command", "shell_command"}
+            and block.item_type in {"command_execution", "command", "shell_command", "collab_tool_call"}
             and block.item_id
         ):
             updated = False
             for existing in reversed(merged):
                 if (
                     existing.kind == "tool_call"
-                    and existing.item_type in {"command_execution", "command", "shell_command"}
+                    and existing.item_type == block.item_type
                     and existing.item_id == block.item_id
                 ):
-                    if body and body != "(command unavailable)":
+                    if body and body not in {"(command unavailable)", "(no payload)"}:
                         existing.body = _truncate(body)
                     if block.item_status:
                         existing.item_status = block.item_status
