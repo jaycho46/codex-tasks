@@ -32,7 +32,7 @@ echo "$OUT_INIT"
 echo "$OUT_INIT" | grep -q "State dir is outside repository; skip .gitignore update:"
 
 BASE_BRANCH="$(git -C "$REPO" symbolic-ref --quiet --short HEAD)"
-OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new 901 --branch "$BASE_BRANCH" --multi-agent "External planning task")"
+OUT_NEW="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task new 901 --branch "$BASE_BRANCH" "External planning task")"
 echo "$OUT_NEW"
 echo "$OUT_NEW" | grep -q "Added task to TODO board: 901"
 echo "$OUT_NEW" | grep -q "Created task: branch=$BASE_BRANCH id=901"

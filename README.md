@@ -77,7 +77,7 @@ Codex app prompt example:
 $codex-tasks
 Plan authentication work and create an executable TODO list with task specs.
 Split work by feature branch,
-and add subtasks only when multi-agent mode is enabled.
+and write concrete subtasks for each task spec so delegation can run automatically.
 ```
 
 ### 2) Planning files default to `.codex-tasks/planning/` (gitignored)
@@ -161,7 +161,7 @@ flowchart LR
 3. Runtime phase
 
 - Workers execute inside their task worktrees and report progress/status.
-- If specs include `## Subtasks` (typically created with `task new --multi-agent`), workers use them for subagent delegation.
+- If specs include `## Subtasks` (scaffolded by default), workers use them for subagent delegation.
 - Dashboard shows the ready queue, running workers, and excluded reasons in one view.
 
 4. Auto cleanup / recovery

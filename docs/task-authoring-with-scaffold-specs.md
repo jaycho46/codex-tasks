@@ -50,18 +50,12 @@ Recommended path:
 codex-tasks task new 101 --branch feature/billing-retry "Billing webhook retry policy"
 ```
 
-If this task will run with multi-agent delegation, add `--multi-agent`:
-
-```bash
-codex-tasks task new 101 --branch feature/billing-retry --multi-agent "Billing webhook retry policy"
-```
-
 What this does:
 
 - appends a `TODO` row to `.codex-tasks/planning/TODO.md`
 - records prerequisites in `Deps` when `--deps` is provided (same-branch `101` or cross-branch `<branch>:101`)
 - creates `.codex-tasks/planning/specs/<branch>/101.md`
-- adds `## Subtasks` template only when `--multi-agent` is provided
+- adds `## Subtasks` template by default
 
 ## Generate Specs (Bulk / Existing TODO Rows)
 
@@ -83,10 +77,10 @@ Generate a specific task only:
 codex-tasks task scaffold-specs --task 101 --branch main
 ```
 
-Generate spec template with `## Subtasks` for multi-agent execution:
+Specs include `## Subtasks` by default:
 
 ```bash
-codex-tasks task scaffold-specs --task 101 --branch main --multi-agent
+codex-tasks task scaffold-specs --task 101 --branch main
 ```
 
 Overwrite an existing spec:
@@ -105,7 +99,7 @@ Each `.codex-tasks/planning/specs/<BRANCH>/<TASK_ID>.md` file must include these
 
 Recommended for worker quality and multi-agent delegation:
 
-- `## Subtasks` with concrete list items (only for multi-agent mode)
+- `## Subtasks` with concrete list items
 
 Template:
 

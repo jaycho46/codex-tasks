@@ -48,10 +48,7 @@ test -f "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Goal$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## In Scope$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Acceptance Criteria$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
-if grep -q "^## Subtasks$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"; then
-  echo "Subtasks should not be scaffolded by default when multi-agent is disabled"
-  exit 1
-fi
+grep -q "^## Subtasks$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 
 OUT_READY="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new --max-start 0)"
 echo "$OUT_READY"

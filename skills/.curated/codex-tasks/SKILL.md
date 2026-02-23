@@ -37,14 +37,13 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 When asked to create a new task, use this flow:
 
 1. Create task row + spec template in one command:
-   - `codex-tasks task new <task_id> --branch <feature_branch> [--multi-agent] [--deps <task_id[,task_id...]>] <summary>`
-   - If the task has prerequisites, pass prerequisite task ids with `--deps` (for example: `--deps T2-100,T2-099`).
+   - `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] <summary>`
+   - If the task has prerequisites, pass prerequisite task ids with `--deps` (for example: `--deps 100,099` or `--deps feature/auth:100`).
 2. Confirm the generated spec file exists:
    - `.codex-tasks/planning/specs/<branch>/<task_id>.md`
 3. Fill the generated form completely (do not leave template placeholders):
    - Keep exact headings: `## Goal`, `## In Scope`, `## Acceptance Criteria`
-   - Fill `## Subtasks` only when using `--multi-agent` during task/spec scaffolding
-   - In multi-agent mode, write concrete list entries (one execution unit per subagent)
+   - Fill `## Subtasks` with concrete list entries (one execution unit per subagent)
    - Add concrete test/validation details in `## Acceptance Criteria`:
      - which tests or checks must run
      - exact command(s) to run

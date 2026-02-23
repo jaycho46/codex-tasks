@@ -473,7 +473,6 @@ cmd_task_scaffold_specs() {
 
   local target_task=""
   local target_branch=""
-  local include_subtasks=0
   local dry_run=0
   local force=0
 
@@ -492,9 +491,6 @@ cmd_task_scaffold_specs() {
       --branch=*)
         target_branch="${1#--branch=}"
         [[ -n "$target_branch" ]] || die "Missing value for --branch"
-        ;;
-      --multi-agent)
-        include_subtasks=1
         ;;
       --dry-run)
         dry_run=1
@@ -621,8 +617,7 @@ Define the concrete outcome for $row_task_id.
 - Relevant tests or validation steps are added or updated.
 - Changes are ready to merge with a clear completion summary.
 EOF
-    if [[ "$include_subtasks" -eq 1 ]]; then
-      cat >> "$spec_abs" <<EOF
+    cat >> "$spec_abs" <<EOF
 
 ## Subtasks
 - Primary implementation step
@@ -630,7 +625,6 @@ EOF
 - Address review findings and regressions
 - Polish docs/tests/refactors within scope
 EOF
-    fi
     echo "[OK] wrote: $spec_rel"
     generated=$((generated + 1))
   done <<< "$selected_rows"
@@ -645,7 +639,6 @@ cmd_task_new() {
   local task_id="${1:-}"
   shift || true
   local task_branch=""
-  local enable_multi_agent=0
   local deps_raw="-"
   local -a summary_parts=()
   local summary=""
@@ -670,9 +663,6 @@ cmd_task_new() {
         task_branch="${1#--branch=}"
         [[ -n "$task_branch" ]] || die "Missing value for --branch"
         ;;
-      --multi-agent)
-        enable_multi_agent=1
-        ;;
       --)
         shift || true
         while [[ $# -gt 0 ]]; do
@@ -692,7 +682,7 @@ cmd_task_new() {
   done
 
   summary="$(trim "${summary_parts[*]:-}")"
-  [[ -n "$task_id" && -n "$summary" && -n "$task_branch" ]] || die "Usage: codex-tasks task new <task_id> --branch <base_branch> [--multi-agent] [--deps <task_id[,task_id...]>] <summary>"
+  [[ -n "$task_id" && -n "$summary" && -n "$task_branch" ]] || die "Usage: codex-tasks task new <task_id> --branch <base_branch> [--deps <task_id[,task_id...]>] <summary>"
   [[ "$task_id" != *"|"* ]] || die "task_id must not contain '|': $task_id"
   git -C "$REPO_ROOT" check-ref-format --branch "$task_branch" >/dev/null 2>&1 || die "Invalid branch name: $task_branch"
 
@@ -882,11 +872,7 @@ PY
   fi
 
   local new_task_id="$task_id"
-  if [[ "$enable_multi_agent" -eq 1 ]]; then
-    cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch" --multi-agent
-  else
-    cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch"
-  fi
+  cmd_task_scaffold_specs --task "$new_task_id" --branch "$task_branch"
   echo "Created task: branch=$task_branch id=$new_task_id title=$summary"
 }
 
@@ -2490,7 +2476,7 @@ build_codex_worker_prompt() {
 
   spec_path_display="${spec_path:-N/A}"
   rendered_rules="${rendered_rules//__TASK_SPEC_PATH__/$spec_path_display}"
-  subtasks_summary_display="${subtasks_summary:-N/A (subtasks are optional unless multi-agent mode is enabled)}"
+  subtasks_summary_display="${subtasks_summary:-N/A (no subtasks found in spec)}"
   rendered_rules="${rendered_rules//__SUBTASKS_SUMMARY__/$subtasks_summary_display}"
 
   cat <<PROMPT
