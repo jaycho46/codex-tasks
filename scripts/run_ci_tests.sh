@@ -18,6 +18,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 smoke_tests=(
   tests/smoke/test_run_start_dry_run.sh
   tests/smoke/test_run_start_lock_cleanup.sh
+  tests/smoke/test_task_lock_atomicity.sh
   tests/smoke/test_run_start_requires_task_spec.sh
   tests/smoke/test_run_start_after_done.sh
   tests/smoke/test_run_start_launch_codex_exec.sh

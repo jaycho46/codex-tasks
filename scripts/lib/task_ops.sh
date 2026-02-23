@@ -1016,13 +1016,6 @@ cmd_task_lock() {
 
   local lock_file
   lock_file="$(resolve_lock_meta_path_or_die "$task_id" "$task_branch" "task lock")"
-  if [[ -f "$lock_file" ]]; then
-    local owner existing_task created
-    owner="$(read_field "$lock_file" "owner")"
-    existing_task="$(read_field "$lock_file" "task_id")"
-    created="$(read_field "$lock_file" "created_at")"
-    die "Lock exists: task=$task_id owner=$owner lock_task=$existing_task created_at=$created"
-  fi
 
   local now branch worktree task_key
   now="$(timestamp_utc)"
@@ -1030,7 +1023,11 @@ cmd_task_lock() {
   worktree="$REPO_ROOT"
   task_key="$(task_identity_key "$task_id" "$task_branch")"
 
-  cat > "$lock_file" <<LOCK_META
+  local create_error=""
+  if ! create_error="$(
+    (
+      set -o noclobber
+      cat > "$lock_file" <<LOCK_META
 owner=$agent
 scope=$scope
 task_id=$task_id
@@ -1041,6 +1038,19 @@ worktree=$worktree
 created_at=$now
 heartbeat_at=$now
 LOCK_META
+    ) 2>&1
+  )"; then
+    if [[ -f "$lock_file" ]]; then
+      local owner existing_task created
+      owner="$(read_field "$lock_file" "owner")"
+      existing_task="$(read_field "$lock_file" "task_id")"
+      created="$(read_field "$lock_file" "created_at")"
+      die "Lock exists: task=$task_id owner=$owner lock_task=$existing_task created_at=$created"
+    fi
+
+    create_error="${create_error//$'\n'/ }"
+    die "Failed to create lock metadata: task=$task_id file=$lock_file${create_error:+ detail=$create_error}"
+  fi
 
   echo "Locked: task=$task_id branch=${task_branch:-N/A} owner=$agent scope=$scope"
 }
