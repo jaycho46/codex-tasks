@@ -864,7 +864,6 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ("escape", "close_modal", "Close"),
             ("q", "close_modal", "Close"),
             ("enter", "close_modal", "Close"),
-            ("tab", "toggle_view", "Toggle View"),
             ("a", "toggle_auto_scroll", "Auto-Scroll"),
             ("up", "scroll_up", "Scroll Up"),
             ("down", "scroll_down", "Scroll Down"),
@@ -1337,10 +1336,6 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.last_parsed_events = structured.parsed_events
             self._set_structured_body(structured)
             self._set_meta()
-
-        def action_toggle_view(self) -> None:
-            self.view_mode = "raw" if self.view_mode == "structured" else "structured"
-            self._refresh_body()
 
         def action_toggle_auto_scroll(self) -> None:
             self.auto_scroll_enabled = not self.auto_scroll_enabled
