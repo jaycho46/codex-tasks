@@ -24,9 +24,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T7-001 | Meaningful summary title | - | summary fallback check | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T7-001 |  | Meaningful summary title | - | summary fallback check | TODO |
 EOF
 "$CLI" --repo "$REPO" task scaffold-specs
 
@@ -58,6 +58,6 @@ if git -C "$REPO" log --pretty=%s | grep -q '^task(T7-001):'; then
   exit 1
 fi
 
-grep -q "| T7-001 | Meaningful summary title | - | summary fallback check | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T7-001 |  | Meaningful summary title | - | summary fallback check | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 echo "task complete no-auto-commit smoke test passed"

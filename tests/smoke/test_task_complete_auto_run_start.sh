@@ -47,10 +47,10 @@ $CLI --repo "$REPO" task init
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T1-001 | App shell bootstrap | - | seed | TODO |
-| T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T1-001 |  | App shell bootstrap | - | seed | TODO |
+| T1-002 |  | Domain core service | T1-001 | wait T1-001 | TODO |
 EOF
 
 "$CLI" --repo "$REPO" task scaffold-specs
@@ -116,7 +116,7 @@ if ! kill -0 "$PID" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T1-001 |  | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
 echo "$LAST_SUBJECT" | grep -q "feat: complete T1-001"

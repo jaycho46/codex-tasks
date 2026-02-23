@@ -44,9 +44,9 @@ chmod +x "$FAKE_BIN/codex"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T8-001 | Launch worker | - | launch smoke | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T8-001 |  | Launch worker | - | launch smoke | TODO |
 EOF
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"

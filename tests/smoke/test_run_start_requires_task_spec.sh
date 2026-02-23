@@ -15,9 +15,9 @@ mkdir -p "$REPO/.codex-tasks/planning/specs"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T9-101 | Spec required task | - | | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T9-101 |  | Spec required task | - | | TODO |
 EOF
 
 OUT_MISSING="$($CLI --repo "$REPO" run start --dry-run --trigger smoke-requires-spec-missing)"

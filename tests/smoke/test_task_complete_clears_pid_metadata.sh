@@ -24,9 +24,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T3-001 | Finish task | - | complete path | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T3-001 |  | Finish task | - | complete path | TODO |
 EOF
 "$CLI" --repo "$REPO" task scaffold-specs
 
@@ -79,6 +79,6 @@ STATUS_OUT="$("$CLI" --repo "$REPO" status --trigger smoke-complete-pid)"
 echo "$STATUS_OUT"
 echo "$STATUS_OUT" | grep -q "Runtime: total=0 active=0 stale=0"
 
-grep -q "| T3-001 | Finish task | - | complete path | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T3-001 |  | Finish task | - | complete path | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 echo "task complete clears pid metadata smoke test passed"

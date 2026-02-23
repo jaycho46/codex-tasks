@@ -25,9 +25,9 @@ git -C "$REPO" commit -q -m "chore: initial"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T9-101 | Recover orphan worktree path | - | stale dir exists | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T9-101 |  | Recover orphan worktree path | - | stale dir exists | TODO |
 EOF
 
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md

@@ -31,9 +31,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T9-401 | done guard | - | preserve done | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T9-401 |  | done guard | - | preserve done | TODO |
 EOF
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -110,6 +110,6 @@ if git -C "$REPO" rev-parse --verify "codex/agenta-t9-401" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T9-401 | done guard | - | preserve done | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T9-401 |  | done guard | - | preserve done | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 echo "auto cleanup done guard smoke test passed"

@@ -30,9 +30,9 @@ EOF
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T1-001 | Respect configured base branch | - | seed | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T1-001 |  | Respect configured base branch | - | seed | TODO |
 EOF
 "$CLI" --repo "$REPO" task scaffold-specs
 

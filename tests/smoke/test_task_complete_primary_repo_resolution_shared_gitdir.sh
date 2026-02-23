@@ -31,9 +31,9 @@ git -C "$REPO" commit -q -m "chore: add codex-tasks scripts"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T8-002 |  | Shared gitdir complete flow | - | primary repo resolution regression | TODO |
 EOF
 "$CLI" --repo "$REPO" task scaffold-specs
 
@@ -72,7 +72,7 @@ if [[ -d "$WT" ]]; then
   exit 1
 fi
 
-grep -q "| T8-002 | Shared gitdir complete flow | - | primary repo resolution regression | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T8-002 |  | Shared gitdir complete flow | - | primary repo resolution regression | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
 echo "$LAST_SUBJECT" | grep -q "feat: deliver T8-002"

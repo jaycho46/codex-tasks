@@ -24,9 +24,9 @@ git -C "$REPO" commit -q -m "chore: init"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T6-001 | Rebase merge task | - | auto rebase merge | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T6-001 |  | Rebase merge task | - | auto rebase merge | TODO |
 EOF
 "$CLI" --repo "$REPO" task scaffold-specs
 
@@ -57,7 +57,7 @@ echo "$COMPLETE_OUT" | grep -q "Fast-forward merge failed, attempting auto-rebas
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary after auto-rebase"
 
 test -f "$REPO/main-advance.txt"
-grep -q "| T6-001 | Rebase merge task | - | auto rebase merge | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T6-001 |  | Rebase merge task | - | auto rebase merge | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
 
 LAST_SUBJECT="$(git -C "$REPO" log -1 --pretty=%s)"
 echo "$LAST_SUBJECT" | grep -q "feat: deliver T6-001"

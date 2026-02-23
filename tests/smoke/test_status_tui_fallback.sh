@@ -15,9 +15,9 @@ mkdir -p "$REPO/.codex-tasks/planning/specs"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T9-001 | Ready task | - | | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T9-001 |  | Ready task | - | | TODO |
 EOF
 
 "$CLI" --repo "$REPO" task scaffold-specs >/dev/null

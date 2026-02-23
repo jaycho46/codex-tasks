@@ -42,9 +42,9 @@ chmod +x "$FAKE_BIN/codex"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T9-301 | auto cleanup | - | watcher cleanup | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T9-301 |  | auto cleanup | - | watcher cleanup | TODO |
 EOF
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -97,7 +97,7 @@ if git -C "$REPO" rev-parse --verify "$BRANCH_NAME" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T9-301 | auto cleanup | - | watcher cleanup | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T9-301 |  | auto cleanup | - | watcher cleanup | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
 grep -q "Stopped by codex-tasks: worker exited (backend=tmux)" "$REPO/.codex-tasks/LATEST_UPDATES.md"
 
 echo "run start auto cleanup on exit smoke test passed"

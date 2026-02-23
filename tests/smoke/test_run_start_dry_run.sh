@@ -15,11 +15,11 @@ mkdir -p "$REPO/.codex-tasks/planning/specs"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T1-001 | Active task | - | | TODO |
-| T1-002 | Depends on active | T1-001 | | TODO |
-| T1-003 | Ready task | - | | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T1-001 |  | Active task | - | | TODO |
+| T1-002 |  | Depends on active | T1-001 | | TODO |
+| T1-003 |  | Ready task | - | | TODO |
 EOF
 
 mkdir -p "$REPO/.codex-tasks/locks" "$REPO/.codex-tasks/orchestrator"

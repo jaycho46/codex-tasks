@@ -41,9 +41,9 @@ chmod +x "$FAKE_BIN/codex"
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T8-009 | Rollback kill check | - | force pid-meta write error | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T8-009 |  | Rollback kill check | - | force pid-meta write error | TODO |
 EOF
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -86,6 +86,6 @@ if git -C "$REPO" rev-parse --verify "codex/agenta-t8-009" >/dev/null 2>&1; then
   exit 1
 fi
 
-grep -q "| T8-009 | Rollback kill check | - | force pid-meta write error | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T8-009 |  | Rollback kill check | - | force pid-meta write error | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
 
 echo "run start rollback kills codex process smoke test passed"

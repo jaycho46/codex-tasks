@@ -22,10 +22,10 @@ $CLI --repo "$REPO" task init
 cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 # TODO Board
 
-| ID | Title | Deps | Notes | Status |
-|---|---|---|---|---|
-| T1-001 | App shell bootstrap | - | seed | TODO |
-| T1-002 | Domain core service | T1-001 | wait T1-001 | TODO |
+| ID | Branch | Title | Deps | Notes | Status |
+|---|---|---|---|---|---|
+| T1-001 |  | App shell bootstrap | - | seed | TODO |
+| T1-002 |  | Domain core service | T1-001 | wait T1-001 | TODO |
 EOF
 
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
@@ -76,8 +76,8 @@ echo "$RUN2"
 echo "$RUN2" | grep -q "Started tasks: 1"
 echo "$RUN2" | grep -q "T1-002"
 
-grep -q "| T1-001 | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
-grep -q "| T1-002 | Domain core service | T1-001 | wait T1-001 | IN_PROGRESS |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T1-001 |  | App shell bootstrap | - | seed | DONE |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| T1-002 |  | Domain core service | T1-001 | wait T1-001 | IN_PROGRESS |" "$REPO/.codex-tasks/planning/TODO.md"
 
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-after-done-second)"
 echo "$STATUS_OUT"
