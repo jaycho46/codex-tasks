@@ -9,6 +9,7 @@ DEFAULT_VERIFY_CHECKSUM="1"
 DEFAULT_VERIFY_SIGNATURE="0"
 DEFAULT_AUTO_UPDATE="1"
 DEFAULT_AUTO_UPDATE_INTERVAL_SECONDS="86400"
+DEFAULT_AUTO_UPDATE_SKILL="1"
 
 REPO="${CODEX_TASKS_REPO:-$DEFAULT_REPO}"
 VERSION="${CODEX_TASKS_VERSION:-$DEFAULT_VERSION}"
@@ -18,6 +19,7 @@ VERIFY_CHECKSUM="${CODEX_TASKS_VERIFY_CHECKSUM:-$DEFAULT_VERIFY_CHECKSUM}"
 VERIFY_SIGNATURE="${CODEX_TASKS_VERIFY_SIGNATURE:-$DEFAULT_VERIFY_SIGNATURE}"
 AUTO_UPDATE_ENABLED="${CODEX_TASKS_AUTO_UPDATE:-$DEFAULT_AUTO_UPDATE}"
 AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS:-$DEFAULT_AUTO_UPDATE_INTERVAL_SECONDS}"
+AUTO_UPDATE_SKILL_ENABLED="${CODEX_TASKS_AUTO_UPDATE_SKILL:-$DEFAULT_AUTO_UPDATE_SKILL}"
 FORCE=0
 
 usage() {
@@ -25,7 +27,7 @@ usage() {
 Install codex-tasks from GitHub releases.
 
 Usage:
-  install-codex-tasks.sh [--repo <owner/repo>] [--version <vX.Y.Z|latest>] [--install-root <path>] [--bin-dir <path>] [--force] [--skip-checksum] [--verify-signature] [--auto-update <on|off>] [--auto-update-interval <seconds>]
+  install-codex-tasks.sh [--repo <owner/repo>] [--version <vX.Y.Z|latest>] [--install-root <path>] [--bin-dir <path>] [--force] [--skip-checksum] [--verify-signature] [--auto-update <on|off>] [--auto-update-interval <seconds>] [--auto-update-skill <on|off>]
 
 Examples:
   install-codex-tasks.sh
@@ -42,11 +44,16 @@ Environment overrides:
   CODEX_TASKS_VERIFY_SIGNATURE (1/0, true/false)
   CODEX_TASKS_AUTO_UPDATE (1/0, true/false)
   CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS
+  CODEX_TASKS_AUTO_UPDATE_SKILL (1/0, true/false)
 USAGE
 }
 
 log() {
   echo "[install] $*"
+}
+
+warn() {
+  echo "[install] WARNING: $*" >&2
 }
 
 die() {
@@ -164,6 +171,47 @@ verify_checksums_signature() {
     || die "Cosign signature verification failed for SHA256SUMS."
 }
 
+sync_curated_skill() {
+  local source_dir="${1:-}"
+  [[ "$AUTO_UPDATE_SKILL_ENABLED" == "1" ]] || return 0
+
+  if [[ ! -f "${source_dir}/SKILL.md" ]]; then
+    warn "Skill payload not found in release. Skipping skill sync."
+    return 0
+  fi
+
+  local codex_home target_dir temp_dir
+  codex_home="${CODEX_HOME:-$HOME/.codex}"
+  target_dir="${codex_home}/skills/codex-tasks"
+  temp_dir="${target_dir}.tmp.$$"
+
+  if ! mkdir -p "$(dirname "$target_dir")"; then
+    warn "Cannot create skill directory parent: $(dirname "$target_dir")"
+    return 0
+  fi
+
+  rm -rf "$temp_dir" >/dev/null 2>&1 || true
+  if ! mkdir -p "$temp_dir"; then
+    warn "Cannot prepare temporary skill directory: $temp_dir"
+    return 0
+  fi
+
+  if ! cp -R "${source_dir}/." "$temp_dir/"; then
+    rm -rf "$temp_dir" >/dev/null 2>&1 || true
+    warn "Failed to copy skill payload from ${source_dir}"
+    return 0
+  fi
+
+  rm -rf "$target_dir" >/dev/null 2>&1 || true
+  if ! mv "$temp_dir" "$target_dir"; then
+    rm -rf "$temp_dir" >/dev/null 2>&1 || true
+    warn "Failed to activate skill at ${target_dir}"
+    return 0
+  fi
+
+  log "Skill synced: ${target_dir}"
+}
+
 write_launcher() {
   local launcher="${1:-}"
   local install_root="${2:-}"
@@ -171,6 +219,7 @@ write_launcher() {
   local bin_dir="${4:-}"
   local auto_update_enabled="${5:-1}"
   local auto_update_interval_seconds="${6:-86400}"
+  local auto_update_skill_enabled="${7:-1}"
 
   mkdir -p "$(dirname "$launcher")"
   {
@@ -181,6 +230,7 @@ write_launcher() {
     printf "BIN_DIR_DEFAULT=%q\n" "$bin_dir"
     printf "AUTO_UPDATE_DEFAULT=%q\n" "$auto_update_enabled"
     printf "AUTO_UPDATE_INTERVAL_DEFAULT=%q\n" "$auto_update_interval_seconds"
+    printf "AUTO_UPDATE_SKILL_DEFAULT=%q\n" "$auto_update_skill_enabled"
     cat <<'LAUNCHER_BODY'
 to_lower() {
   printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'
@@ -204,11 +254,16 @@ AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS:-$AUTO_
 if [[ ! "$AUTO_UPDATE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$AUTO_UPDATE_INTERVAL_SECONDS" -le 0 ]]; then
   AUTO_UPDATE_INTERVAL_SECONDS="$AUTO_UPDATE_INTERVAL_DEFAULT"
 fi
+AUTO_UPDATE_SKILL_ENABLED="$(normalize_bool "${CODEX_TASKS_AUTO_UPDATE_SKILL:-$AUTO_UPDATE_SKILL_DEFAULT}")"
 
 INSTALL_SCRIPT="${INSTALL_ROOT}/current/scripts/install-codex-tasks.sh"
 MAIN_CLI="${INSTALL_ROOT}/current/scripts/codex-tasks"
 UPDATE_STAMP="${INSTALL_ROOT}/.auto_update_last_check"
 UPDATE_LOCK_DIR="${INSTALL_ROOT}/.auto_update_lock"
+SKILL_SOURCE_DIR="${INSTALL_ROOT}/current/skills/codex-tasks"
+SKILL_LOCK_DIR="${INSTALL_ROOT}/.auto_update_skill_lock"
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+SKILL_TARGET_DIR="${CODEX_HOME_DIR}/skills/codex-tasks"
 
 maybe_auto_update() {
   [[ "$AUTO_UPDATE_ENABLED" == "1" ]] || return 0
@@ -248,7 +303,39 @@ maybe_auto_update() {
   ) &
 }
 
+sync_skill_payload() {
+  [[ "$AUTO_UPDATE_SKILL_ENABLED" == "1" ]] || return 0
+  [[ -f "$SKILL_SOURCE_DIR/SKILL.md" ]] || return 0
+  mkdir -p "$(dirname "$SKILL_TARGET_DIR")" >/dev/null 2>&1 || return 0
+
+  local tmp_dir
+  tmp_dir="${SKILL_TARGET_DIR}.tmp.$$"
+  rm -rf "$tmp_dir" >/dev/null 2>&1 || true
+  mkdir -p "$tmp_dir" >/dev/null 2>&1 || return 0
+  cp -R "${SKILL_SOURCE_DIR}/." "$tmp_dir/" >/dev/null 2>&1 || {
+    rm -rf "$tmp_dir" >/dev/null 2>&1 || true
+    return 0
+  }
+  rm -rf "$SKILL_TARGET_DIR" >/dev/null 2>&1 || true
+  mv "$tmp_dir" "$SKILL_TARGET_DIR" >/dev/null 2>&1 || {
+    rm -rf "$tmp_dir" >/dev/null 2>&1 || true
+    return 0
+  }
+}
+
+maybe_sync_skill() {
+  [[ "$AUTO_UPDATE_SKILL_ENABLED" == "1" ]] || return 0
+  if ! mkdir "$SKILL_LOCK_DIR" >/dev/null 2>&1; then
+    return 0
+  fi
+  (
+    trap 'rmdir "$SKILL_LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+    sync_skill_payload
+  ) &
+}
+
 maybe_auto_update
+maybe_sync_skill
 exec "$MAIN_CLI" "$@"
 LAUNCHER_BODY
   } > "$launcher"
@@ -304,6 +391,15 @@ while [[ $# -gt 0 ]]; do
       AUTO_UPDATE_INTERVAL_SECONDS="${1#--auto-update-interval=}"
       [[ -n "$AUTO_UPDATE_INTERVAL_SECONDS" ]] || die "Missing value for --auto-update-interval"
       ;;
+    --auto-update-skill)
+      shift || true
+      [[ $# -gt 0 ]] || die "Missing value for --auto-update-skill"
+      AUTO_UPDATE_SKILL_ENABLED="$1"
+      ;;
+    --auto-update-skill=*)
+      AUTO_UPDATE_SKILL_ENABLED="${1#--auto-update-skill=}"
+      [[ -n "$AUTO_UPDATE_SKILL_ENABLED" ]] || die "Missing value for --auto-update-skill"
+      ;;
     -h|--help)
       usage
       exit 0
@@ -319,6 +415,7 @@ done
 VERIFY_CHECKSUM="$(normalize_bool "$VERIFY_CHECKSUM")"
 VERIFY_SIGNATURE="$(normalize_bool "$VERIFY_SIGNATURE")"
 AUTO_UPDATE_ENABLED="$(normalize_bool "$AUTO_UPDATE_ENABLED")"
+AUTO_UPDATE_SKILL_ENABLED="$(normalize_bool "$AUTO_UPDATE_SKILL_ENABLED")"
 require_positive_int "auto-update interval" "$AUTO_UPDATE_INTERVAL_SECONDS"
 
 if [[ "$VERIFY_SIGNATURE" -eq 1 ]]; then
@@ -346,6 +443,10 @@ already_installed=0
 if [[ -d "$target_dir" && "$FORCE" -ne 1 ]]; then
   already_installed=1
   log "Version already installed at ${target_dir}. Skipping payload download."
+  if [[ "$AUTO_UPDATE_SKILL_ENABLED" == "1" ]] && [[ ! -f "${target_dir}/skills/codex-tasks/SKILL.md" ]]; then
+    already_installed=0
+    log "Installed payload is missing bundled skill. Refreshing ${VERSION}."
+  fi
 fi
 
 if [[ "$already_installed" -eq 0 ]]; then
@@ -382,6 +483,13 @@ if [[ "$already_installed" -eq 0 ]]; then
   rm -rf "${target_dir}.tmp"
   mkdir -p "${target_dir}.tmp"
   cp -R "${source_dir}/scripts" "${target_dir}.tmp/" || die "Failed to copy scripts payload"
+  if [[ -d "${source_dir}/skills/.curated/codex-tasks" ]]; then
+    mkdir -p "${target_dir}.tmp/skills"
+    cp -R "${source_dir}/skills/.curated/codex-tasks" "${target_dir}.tmp/skills/codex-tasks" \
+      || die "Failed to copy curated skill payload"
+  else
+    warn "Release payload missing curated codex-tasks skill."
+  fi
   echo "${VERSION#v}" > "${target_dir}.tmp/scripts/VERSION"
   rm -rf "$target_dir"
   mv "${target_dir}.tmp" "$target_dir"
@@ -391,7 +499,8 @@ mkdir -p "$INSTALL_ROOT"
 ln -sfn "$target_dir" "${INSTALL_ROOT}/current"
 
 launcher_path="${BIN_DIR}/codex-tasks"
-write_launcher "$launcher_path" "$INSTALL_ROOT" "$REPO" "$BIN_DIR" "$AUTO_UPDATE_ENABLED" "$AUTO_UPDATE_INTERVAL_SECONDS"
+write_launcher "$launcher_path" "$INSTALL_ROOT" "$REPO" "$BIN_DIR" "$AUTO_UPDATE_ENABLED" "$AUTO_UPDATE_INTERVAL_SECONDS" "$AUTO_UPDATE_SKILL_ENABLED"
+sync_curated_skill "${INSTALL_ROOT}/current/skills/codex-tasks"
 
 if [[ "$already_installed" -eq 1 ]]; then
   log "Installed version unchanged: ${VERSION}"

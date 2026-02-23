@@ -47,8 +47,10 @@ Auto-update behavior (launcher):
 
 - checks latest release in the background (default: once every 24h)
 - updates `current` symlink + launcher when a newer version exists
+- syncs curated skill to `$CODEX_HOME/skills/codex-tasks` (default: enabled)
 - can be disabled with `CODEX_TASKS_AUTO_UPDATE=0`
 - interval can be tuned with `CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS=<seconds>`
+- skill sync can be disabled with `CODEX_TASKS_AUTO_UPDATE_SKILL=0`
 
 ## Install Codex Skill
 
