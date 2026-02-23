@@ -43,6 +43,13 @@ Default install paths:
 - payload: `~/.local/share/codex-tasks/<version>/scripts`
 - launcher: `~/.local/bin/codex-tasks`
 
+Auto-update behavior (launcher):
+
+- checks latest release in the background (default: once every 24h)
+- updates `current` symlink + launcher when a newer version exists
+- can be disabled with `CODEX_TASKS_AUTO_UPDATE=0`
+- interval can be tuned with `CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS=<seconds>`
+
 ## Install Codex Skill
 
 In Codex app, run `$skill-installer` with:

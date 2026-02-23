@@ -7,6 +7,8 @@ DEFAULT_INSTALL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/codex-tasks"
 DEFAULT_BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DEFAULT_VERIFY_CHECKSUM="1"
 DEFAULT_VERIFY_SIGNATURE="0"
+DEFAULT_AUTO_UPDATE="1"
+DEFAULT_AUTO_UPDATE_INTERVAL_SECONDS="86400"
 
 REPO="${CODEX_TASKS_REPO:-$DEFAULT_REPO}"
 VERSION="${CODEX_TASKS_VERSION:-$DEFAULT_VERSION}"
@@ -14,6 +16,8 @@ INSTALL_ROOT="${CODEX_TASKS_INSTALL_ROOT:-$DEFAULT_INSTALL_ROOT}"
 BIN_DIR="${CODEX_TASKS_BIN_DIR:-$DEFAULT_BIN_DIR}"
 VERIFY_CHECKSUM="${CODEX_TASKS_VERIFY_CHECKSUM:-$DEFAULT_VERIFY_CHECKSUM}"
 VERIFY_SIGNATURE="${CODEX_TASKS_VERIFY_SIGNATURE:-$DEFAULT_VERIFY_SIGNATURE}"
+AUTO_UPDATE_ENABLED="${CODEX_TASKS_AUTO_UPDATE:-$DEFAULT_AUTO_UPDATE}"
+AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS:-$DEFAULT_AUTO_UPDATE_INTERVAL_SECONDS}"
 FORCE=0
 
 usage() {
@@ -21,7 +25,7 @@ usage() {
 Install codex-tasks from GitHub releases.
 
 Usage:
-  install-codex-tasks.sh [--repo <owner/repo>] [--version <vX.Y.Z|latest>] [--install-root <path>] [--bin-dir <path>] [--force] [--skip-checksum] [--verify-signature]
+  install-codex-tasks.sh [--repo <owner/repo>] [--version <vX.Y.Z|latest>] [--install-root <path>] [--bin-dir <path>] [--force] [--skip-checksum] [--verify-signature] [--auto-update <on|off>] [--auto-update-interval <seconds>]
 
 Examples:
   install-codex-tasks.sh
@@ -36,6 +40,8 @@ Environment overrides:
   CODEX_TASKS_BIN_DIR
   CODEX_TASKS_VERIFY_CHECKSUM (1/0, true/false)
   CODEX_TASKS_VERIFY_SIGNATURE (1/0, true/false)
+  CODEX_TASKS_AUTO_UPDATE (1/0, true/false)
+  CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS
 USAGE
 }
 
@@ -67,6 +73,13 @@ normalize_bool() {
       die "Invalid boolean value: ${raw}"
       ;;
   esac
+}
+
+require_positive_int() {
+  local name="${1:-value}"
+  local raw="${2:-}"
+  [[ "$raw" =~ ^[0-9]+$ ]] || die "Invalid ${name}: ${raw}"
+  [[ "$raw" -gt 0 ]] || die "Invalid ${name}: ${raw}"
 }
 
 is_semver_tag() {
@@ -154,13 +167,90 @@ verify_checksums_signature() {
 write_launcher() {
   local launcher="${1:-}"
   local install_root="${2:-}"
+  local repo="${3:-}"
+  local bin_dir="${4:-}"
+  local auto_update_enabled="${5:-1}"
+  local auto_update_interval_seconds="${6:-86400}"
 
   mkdir -p "$(dirname "$launcher")"
   {
     echo "#!/usr/bin/env bash"
     echo "set -euo pipefail"
     printf "INSTALL_ROOT=%q\n" "$install_root"
-    echo 'exec "${INSTALL_ROOT}/current/scripts/codex-tasks" "$@"'
+    printf "REPO_DEFAULT=%q\n" "$repo"
+    printf "BIN_DIR_DEFAULT=%q\n" "$bin_dir"
+    printf "AUTO_UPDATE_DEFAULT=%q\n" "$auto_update_enabled"
+    printf "AUTO_UPDATE_INTERVAL_DEFAULT=%q\n" "$auto_update_interval_seconds"
+    cat <<'LAUNCHER_BODY'
+to_lower() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'
+}
+
+normalize_bool() {
+  local raw="${1:-}"
+  local lower
+  lower="$(to_lower "$raw")"
+  case "$lower" in
+    1|true|yes|on) echo 1 ;;
+    0|false|no|off) echo 0 ;;
+    *) echo "$AUTO_UPDATE_DEFAULT" ;;
+  esac
+}
+
+REPO="${CODEX_TASKS_REPO:-$REPO_DEFAULT}"
+BIN_DIR="${CODEX_TASKS_BIN_DIR:-$BIN_DIR_DEFAULT}"
+AUTO_UPDATE_ENABLED="$(normalize_bool "${CODEX_TASKS_AUTO_UPDATE:-$AUTO_UPDATE_DEFAULT}")"
+AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_TASKS_AUTO_UPDATE_INTERVAL_SECONDS:-$AUTO_UPDATE_INTERVAL_DEFAULT}"
+if [[ ! "$AUTO_UPDATE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$AUTO_UPDATE_INTERVAL_SECONDS" -le 0 ]]; then
+  AUTO_UPDATE_INTERVAL_SECONDS="$AUTO_UPDATE_INTERVAL_DEFAULT"
+fi
+
+INSTALL_SCRIPT="${INSTALL_ROOT}/current/scripts/install-codex-tasks.sh"
+MAIN_CLI="${INSTALL_ROOT}/current/scripts/codex-tasks"
+UPDATE_STAMP="${INSTALL_ROOT}/.auto_update_last_check"
+UPDATE_LOCK_DIR="${INSTALL_ROOT}/.auto_update_lock"
+
+maybe_auto_update() {
+  [[ "$AUTO_UPDATE_ENABLED" == "1" ]] || return 0
+  [[ -x "$INSTALL_SCRIPT" ]] || return 0
+  [[ -n "$REPO" ]] || return 0
+  [[ -n "$BIN_DIR" ]] || return 0
+
+  local now last
+  now="$(date +%s 2>/dev/null || printf '0')"
+  [[ "$now" =~ ^[0-9]+$ ]] || return 0
+
+  last=0
+  if [[ -f "$UPDATE_STAMP" ]]; then
+    last="$(tr -d '[:space:]' < "$UPDATE_STAMP" 2>/dev/null || printf '0')"
+  fi
+  [[ "$last" =~ ^[0-9]+$ ]] || last=0
+
+  if (( now - last < AUTO_UPDATE_INTERVAL_SECONDS )); then
+    return 0
+  fi
+
+  mkdir -p "$INSTALL_ROOT" >/dev/null 2>&1 || return 0
+  if ! mkdir "$UPDATE_LOCK_DIR" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  printf '%s\n' "$now" > "$UPDATE_STAMP" 2>/dev/null || true
+
+  (
+    trap 'rmdir "$UPDATE_LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+    "$INSTALL_SCRIPT" \
+      --repo "$REPO" \
+      --version latest \
+      --install-root "$INSTALL_ROOT" \
+      --bin-dir "$BIN_DIR" \
+      >/dev/null 2>&1 || true
+  ) &
+}
+
+maybe_auto_update
+exec "$MAIN_CLI" "$@"
+LAUNCHER_BODY
   } > "$launcher"
   chmod +x "$launcher"
 }
@@ -196,6 +286,24 @@ while [[ $# -gt 0 ]]; do
     --verify-signature)
       VERIFY_SIGNATURE=1
       ;;
+    --auto-update)
+      shift || true
+      [[ $# -gt 0 ]] || die "Missing value for --auto-update"
+      AUTO_UPDATE_ENABLED="$1"
+      ;;
+    --auto-update=*)
+      AUTO_UPDATE_ENABLED="${1#--auto-update=}"
+      [[ -n "$AUTO_UPDATE_ENABLED" ]] || die "Missing value for --auto-update"
+      ;;
+    --auto-update-interval)
+      shift || true
+      [[ $# -gt 0 ]] || die "Missing value for --auto-update-interval"
+      AUTO_UPDATE_INTERVAL_SECONDS="$1"
+      ;;
+    --auto-update-interval=*)
+      AUTO_UPDATE_INTERVAL_SECONDS="${1#--auto-update-interval=}"
+      [[ -n "$AUTO_UPDATE_INTERVAL_SECONDS" ]] || die "Missing value for --auto-update-interval"
+      ;;
     -h|--help)
       usage
       exit 0
@@ -210,6 +318,8 @@ done
 [[ "$REPO" == */* ]] || die "--repo must be in owner/repo format"
 VERIFY_CHECKSUM="$(normalize_bool "$VERIFY_CHECKSUM")"
 VERIFY_SIGNATURE="$(normalize_bool "$VERIFY_SIGNATURE")"
+AUTO_UPDATE_ENABLED="$(normalize_bool "$AUTO_UPDATE_ENABLED")"
+require_positive_int "auto-update interval" "$AUTO_UPDATE_INTERVAL_SECONDS"
 
 if [[ "$VERIFY_SIGNATURE" -eq 1 ]]; then
   VERIFY_CHECKSUM=1
@@ -228,52 +338,66 @@ fi
 is_semver_tag "$VERSION" || die "Invalid --version value: ${VERSION}"
 
 target_dir="${INSTALL_ROOT}/${VERSION}"
-if [[ -e "$target_dir" && "$FORCE" -ne 1 ]]; then
-  die "Version already installed at ${target_dir}. Use --force to overwrite."
+if [[ -e "$target_dir" && ! -d "$target_dir" ]]; then
+  die "Install target exists but is not a directory: ${target_dir}"
 fi
 
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
+already_installed=0
+if [[ -d "$target_dir" && "$FORCE" -ne 1 ]]; then
+  already_installed=1
+  log "Version already installed at ${target_dir}. Skipping payload download."
+fi
 
-archive_path="${tmp_dir}/source.tar.gz"
-tarball_url="$(release_asset_url "$REPO" "$VERSION" "source.tar.gz")"
-download_file "$tarball_url" "$archive_path"
+if [[ "$already_installed" -eq 0 ]]; then
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
 
-if [[ "$VERIFY_CHECKSUM" -eq 1 ]]; then
-  checksums_path="${tmp_dir}/SHA256SUMS"
-  download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS")" "$checksums_path"
+  archive_path="${tmp_dir}/source.tar.gz"
+  tarball_url="$(release_asset_url "$REPO" "$VERSION" "source.tar.gz")"
+  download_file "$tarball_url" "$archive_path"
 
-  if [[ "$VERIFY_SIGNATURE" -eq 1 ]]; then
-    checksum_sig_path="${tmp_dir}/SHA256SUMS.sig"
-    checksum_cert_path="${tmp_dir}/SHA256SUMS.pem"
-    download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS.sig")" "$checksum_sig_path"
-    download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS.pem")" "$checksum_cert_path"
-    verify_checksums_signature "$REPO" "$checksums_path" "$checksum_sig_path" "$checksum_cert_path"
-    log "Signature verification passed."
+  if [[ "$VERIFY_CHECKSUM" -eq 1 ]]; then
+    checksums_path="${tmp_dir}/SHA256SUMS"
+    download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS")" "$checksums_path"
+
+    if [[ "$VERIFY_SIGNATURE" -eq 1 ]]; then
+      checksum_sig_path="${tmp_dir}/SHA256SUMS.sig"
+      checksum_cert_path="${tmp_dir}/SHA256SUMS.pem"
+      download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS.sig")" "$checksum_sig_path"
+      download_file "$(release_asset_url "$REPO" "$VERSION" "SHA256SUMS.pem")" "$checksum_cert_path"
+      verify_checksums_signature "$REPO" "$checksums_path" "$checksum_sig_path" "$checksum_cert_path"
+      log "Signature verification passed."
+    fi
+
+    verify_tarball_checksum "$checksums_path" "$tarball_url" "$archive_path"
+    log "Checksum verification passed."
   fi
 
-  verify_tarball_checksum "$checksums_path" "$tarball_url" "$archive_path"
-  log "Checksum verification passed."
+  tar -xzf "$archive_path" -C "$tmp_dir" || die "Failed to extract tarball"
+  source_dir="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  [[ -n "$source_dir" ]] || die "Unable to resolve extracted source directory"
+  [[ -x "${source_dir}/scripts/codex-tasks" ]] || die "Release payload missing scripts/codex-tasks"
+
+  mkdir -p "$INSTALL_ROOT"
+  rm -rf "${target_dir}.tmp"
+  mkdir -p "${target_dir}.tmp"
+  cp -R "${source_dir}/scripts" "${target_dir}.tmp/" || die "Failed to copy scripts payload"
+  echo "${VERSION#v}" > "${target_dir}.tmp/scripts/VERSION"
+  rm -rf "$target_dir"
+  mv "${target_dir}.tmp" "$target_dir"
 fi
 
-tar -xzf "$archive_path" -C "$tmp_dir" || die "Failed to extract tarball"
-source_dir="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-[[ -n "$source_dir" ]] || die "Unable to resolve extracted source directory"
-[[ -x "${source_dir}/scripts/codex-tasks" ]] || die "Release payload missing scripts/codex-tasks"
-
 mkdir -p "$INSTALL_ROOT"
-rm -rf "${target_dir}.tmp"
-mkdir -p "${target_dir}.tmp"
-cp -R "${source_dir}/scripts" "${target_dir}.tmp/" || die "Failed to copy scripts payload"
-echo "${VERSION#v}" > "${target_dir}.tmp/scripts/VERSION"
-rm -rf "$target_dir"
-mv "${target_dir}.tmp" "$target_dir"
 ln -sfn "$target_dir" "${INSTALL_ROOT}/current"
 
 launcher_path="${BIN_DIR}/codex-tasks"
-write_launcher "$launcher_path" "$INSTALL_ROOT"
+write_launcher "$launcher_path" "$INSTALL_ROOT" "$REPO" "$BIN_DIR" "$AUTO_UPDATE_ENABLED" "$AUTO_UPDATE_INTERVAL_SECONDS"
 
-log "Installed version: ${VERSION}"
+if [[ "$already_installed" -eq 1 ]]; then
+  log "Installed version unchanged: ${VERSION}"
+else
+  log "Installed version: ${VERSION}"
+fi
 log "Install root: ${target_dir}"
 log "Launcher: ${launcher_path}"
 
