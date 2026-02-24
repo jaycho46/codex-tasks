@@ -75,14 +75,14 @@ if [[ -f "$LOCK_FILE" ]]; then
   exit 1
 fi
 
-WT_PATH="$TMP_DIR/repo-worktrees/repo-agenta-t8-009"
+WT_PATH="$TMP_DIR/repo-worktrees/repo-t8-009"
 if [[ -d "$WT_PATH" ]]; then
   echo "worktree should be removed by rollback: $WT_PATH"
   exit 1
 fi
 
-if git -C "$REPO" rev-parse --verify "codex/agenta-t8-009" >/dev/null 2>&1; then
-  echo "branch should be removed by rollback: codex/agenta-t8-009"
+if git -C "$REPO" rev-parse --verify "codex/t8-009" >/dev/null 2>&1; then
+  echo "branch should be removed by rollback: codex/t8-009"
   exit 1
 fi
 

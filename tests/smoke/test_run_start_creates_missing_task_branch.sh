@@ -19,7 +19,7 @@ git -C "$REPO" add README.md
 git -C "$REPO" commit -q -m "init"
 
 "$CLI" --repo "$REPO" task init >/dev/null
-"$CLI" --repo "$REPO" task new 111 --branch release/9.9 "Create missing branch from base" >/dev/null
+"$CLI" --repo "$REPO" task new 111 --branch release/9.9 --status TODO "Create missing branch from base" >/dev/null
 
 if git -C "$REPO" rev-parse --verify release/9.9 >/dev/null 2>&1; then
   echo "release/9.9 must not exist before scheduler start"

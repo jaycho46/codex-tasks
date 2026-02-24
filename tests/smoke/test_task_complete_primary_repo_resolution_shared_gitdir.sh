@@ -41,7 +41,7 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-shared-gi
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT="$TMP_DIR/repo-worktrees/repo-agenta-t8-002"
+WT="$TMP_DIR/repo-worktrees/repo-t8-002"
 if [[ ! -d "$WT" ]]; then
   echo "missing worktree: $WT"
   exit 1
@@ -50,9 +50,9 @@ fi
 echo "deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T8-002"
-"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T8-002 DONE "shared gitdir complete flow"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update T8-002 DONE "shared gitdir complete flow"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T8-002 --summary "shared gitdir complete flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete T8-002 --summary "shared gitdir complete flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary"

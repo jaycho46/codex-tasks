@@ -31,7 +31,6 @@ class StateModelTests(unittest.TestCase):
             (orch / "worker.pid").write_text(
                 """
 task_id=T1-001
-owner=AgentA
 scope=app-shell
 pid=123
 worktree=/tmp/wt
@@ -44,7 +43,6 @@ log_file=/tmp/wt.log
             )
             (lock / "app-shell.lock").write_text(
                 """
-owner=AgentA
 scope=app-shell
 task_id=T1-001
 worktree=/tmp/wt
@@ -78,7 +76,6 @@ worktree=/tmp/wt
                 {
                     "key": "T1-001",
                     "task_id": "T1-001",
-                    "owner": "AgentA",
                     "scope": "app-shell",
                     "pid": "101",
                     "pid_file": "T1.pid",
@@ -90,7 +87,6 @@ worktree=/tmp/wt
                 {
                     "key": "T3-001",
                     "task_id": "T3-001",
-                    "owner": "AgentC",
                     "scope": "provider-openai",
                     "pid": "301",
                     "pid_file": "T3.pid",
@@ -102,7 +98,6 @@ worktree=/tmp/wt
                 {
                     "key": "T4-001",
                     "task_id": "T4-001",
-                    "owner": "AgentD",
                     "scope": "ui-popover",
                     "pid": "401",
                     "pid_file": "T4.pid",
@@ -114,7 +109,6 @@ worktree=/tmp/wt
                 {
                     "key": "T6-001",
                     "task_id": "T6-001",
-                    "owner": "AgentE",
                     "scope": "ci-release",
                     "pid": "601",
                     "pid_file": "T6.pid",
@@ -126,7 +120,6 @@ worktree=/tmp/wt
                 {
                     "key": "T7-001",
                     "task_id": "T7-001",
-                    "owner": "AgentA",
                     "scope": "app-shell",
                     "pid": "701",
                     "pid_file": "T7.pid",
@@ -138,7 +131,6 @@ worktree=/tmp/wt
                 {
                     "key": "T9-001",
                     "task_id": "T9-001",
-                    "owner": "AgentB",
                     "scope": "domain-core",
                     "pid": "901",
                     "pid_file": "T9.pid",
@@ -152,7 +144,6 @@ worktree=/tmp/wt
                 {
                     "key": "T1-001",
                     "task_id": "T1-001",
-                    "owner": "AgentA",
                     "scope": "app-shell",
                     "lock_file": "T1.lock",
                     "worktree": str(existing),
@@ -160,7 +151,6 @@ worktree=/tmp/wt
                 {
                     "key": "T2-001",
                     "task_id": "T2-001",
-                    "owner": "AgentB",
                     "scope": "domain-core",
                     "lock_file": "T2.lock",
                     "worktree": str(existing),
@@ -168,7 +158,6 @@ worktree=/tmp/wt
                 {
                     "key": "T5-001",
                     "task_id": "T5-001",
-                    "owner": "AgentD",
                     "scope": "ui-popover",
                     "lock_file": "T5.lock",
                     "worktree": str(missing),
@@ -176,7 +165,6 @@ worktree=/tmp/wt
                 {
                     "key": "T7-001",
                     "task_id": "T7-001",
-                    "owner": "AgentA",
                     "scope": "app-shell",
                     "lock_file": "T7.lock",
                     "worktree": str(missing),
@@ -184,7 +172,6 @@ worktree=/tmp/wt
                 {
                     "key": "T9-001",
                     "task_id": "T9-001",
-                    "owner": "AgentB",
                     "scope": "domain-core",
                     "lock_file": "T9.lock",
                     "worktree": str(existing),
@@ -211,6 +198,23 @@ worktree=/tmp/wt
             summary = state_model.summarize(records)
             self.assertEqual(summary["state_counts"]["RUNNING"], 1)
             self.assertEqual(summary["state_counts"]["LOCK_STALE"], 1)
+
+    def test_legacy_owner_metadata_files_detects_owner_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            orch = base / "orchestrator"
+            lock = base / "locks"
+            orch.mkdir(parents=True, exist_ok=True)
+            lock.mkdir(parents=True, exist_ok=True)
+
+            (lock / "legacy.lock").write_text("owner=AgentA\nscope=task-001\n", encoding="utf-8")
+            (orch / "legacy.pid").write_text("owner=AgentA\npid=123\n", encoding="utf-8")
+            (lock / "clean.lock").write_text("scope=task-002\n", encoding="utf-8")
+
+            files = state_model.legacy_owner_metadata_files(orch, lock)
+            self.assertEqual(len(files), 2)
+            self.assertTrue(any(path.endswith("legacy.lock") for path in files))
+            self.assertTrue(any(path.endswith("legacy.pid") for path in files))
 
 
 if __name__ == "__main__":

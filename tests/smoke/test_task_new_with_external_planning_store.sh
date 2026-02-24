@@ -38,7 +38,7 @@ echo "$OUT_NEW" | grep -q "Added task to TODO board: 901"
 echo "$OUT_NEW" | grep -q "Created task: branch=$BASE_BRANCH id=901"
 
 test -f "$TODO_FILE"
-grep -q "| 901 | $BASE_BRANCH | External planning task | - |  | TODO |" "$TODO_FILE"
+grep -q "| 901 | $BASE_BRANCH | External planning task | - |  | PLAN |" "$TODO_FILE"
 
 SPEC_FILE="$SPEC_DIR/$BASE_BRANCH/901.md"
 test -f "$SPEC_FILE"
@@ -51,7 +51,19 @@ if grep -q "^owner=" "$SPEC_FILE"; then
   exit 1
 fi
 
-OUT_READY="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" run start --dry-run --trigger smoke-external-planning --max-start 0)"
+OUT_READY_PLAN="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" run start --dry-run --trigger smoke-external-planning-plan --max-start 0)"
+echo "$OUT_READY_PLAN"
+echo "$OUT_READY_PLAN" | grep -q "Started tasks: 0"
+if echo "$OUT_READY_PLAN" | grep -q "\[DRY-RUN\].*901"; then
+  echo "PLAN task must not be scheduled before promote"
+  exit 1
+fi
+
+OUT_PROMOTE="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" task promote 901 --branch "$BASE_BRANCH")"
+echo "$OUT_PROMOTE"
+echo "$OUT_PROMOTE" | grep -q "Promoted task: task=901 branch=$BASE_BRANCH status=TODO"
+
+OUT_READY="$("$CLI" --repo "$REPO" --config "$CONFIG_FILE" run start --dry-run --trigger smoke-external-planning-ready --max-start 0)"
 echo "$OUT_READY"
 echo "$OUT_READY" | grep -q "\[DRY-RUN\].*901"
 echo "$OUT_READY" | grep -q "Started tasks: 1"

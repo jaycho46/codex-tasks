@@ -62,9 +62,9 @@ echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
 echo "$RUN_OUT" | grep -q "T1-002 .*reason=deps_not_ready"
 
-WT_A="$TMP_DIR/repo-worktrees/repo-agenta-t1-001"
+WT_A="$TMP_DIR/repo-worktrees/repo-t1-001"
 if [[ ! -d "$WT_A" ]]; then
-  echo "missing AgentA worktree: $WT_A"
+  echo "missing task worktree: $WT_A"
   exit 1
 fi
 WORKTREE_CLI="$WT_A/scripts/codex-tasks"
@@ -77,9 +77,9 @@ fi
 echo "done" > "$WT_A/agent-output.txt"
 git -C "$WT_A" add agent-output.txt
 git -C "$WT_A" commit -q -m "feat: complete T1-001"
-"$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "smoke complete"
+"$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update T1-001 DONE "smoke complete"
 
-COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
+COMPLETE_OUT="$(PATH="$FAKE_BIN:$PATH" "$WORKTREE_CLI" --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task complete T1-001 --summary "smoke complete" --trigger smoke-complete-next)"
 echo "$COMPLETE_OUT"
 
 echo "$COMPLETE_OUT" | grep -q "Completion prerequisites satisfied"
@@ -96,7 +96,7 @@ fi
 STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-complete-next)"
 echo "$STATUS_OUT"
 
-echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 agent=AgentA task=T1-002"
+echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 task=T1-002"
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
 
 PID_META="$REPO/.codex-tasks/orchestrator/t1-002.pid"

@@ -34,7 +34,7 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-auto-reba
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT="$TMP_DIR/repo-worktrees/repo-agenta-t6-001"
+WT="$TMP_DIR/repo-worktrees/repo-t6-001"
 if [[ ! -d "$WT" ]]; then
   echo "missing worktree: $WT"
   exit 1
@@ -44,14 +44,14 @@ fi
 echo "task deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T6-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T6-001 DONE "auto rebase merge"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update T6-001 DONE "auto rebase merge"
 
 # Advance main after task worktree starts to force non-ff merge condition.
 echo "main advanced" > "$REPO/main-advance.txt"
 git -C "$REPO" add main-advance.txt
 git -C "$REPO" commit -q -m "chore: advance main during task"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T6-001 --summary "auto rebase merge" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete T6-001 --summary "auto rebase merge" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Fast-forward merge failed, attempting auto-rebase"
 echo "$COMPLETE_OUT" | grep -q "Merged branch into primary after auto-rebase"

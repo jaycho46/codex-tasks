@@ -45,7 +45,7 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-done-guar
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT_PATH="$TMP_DIR/repo-worktrees/repo-agenta-t9-401"
+WT_PATH="$TMP_DIR/repo-worktrees/repo-t9-401"
 if [[ ! -d "$WT_PATH" ]]; then
   echo "missing worktree: $WT_PATH"
   exit 1
@@ -76,7 +76,6 @@ PID_META="$REPO/.codex-tasks/orchestrator/t9-401.pid"
 cat > "$PID_META" <<EOF
 pid=999991
 task_id=T9-401
-owner=AgentA
 scope=task-t9-401
 worktree=$WT_PATH
 started_at=2026-01-01T00:00:00Z
@@ -105,8 +104,8 @@ if [[ -d "$WT_PATH" ]]; then
   echo "worktree should be removed by auto-cleanup: $WT_PATH"
   exit 1
 fi
-if git -C "$REPO" rev-parse --verify "codex/agenta-t9-401" >/dev/null 2>&1; then
-  echo "branch should be removed by auto-cleanup: codex/agenta-t9-401"
+if git -C "$REPO" rev-parse --verify "codex/t9-401" >/dev/null 2>&1; then
+  echo "branch should be removed by auto-cleanup: codex/t9-401"
   exit 1
 fi
 

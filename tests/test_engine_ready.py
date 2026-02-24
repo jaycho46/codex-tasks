@@ -67,13 +67,12 @@ def _write_specs(repo_root: Path, task_ids: list[str]) -> None:
         )
 
 
-def _write_lock(state_dir: Path, filename: str, owner: str, scope: str, task_id: str, worktree: Path) -> None:
+def _write_lock(state_dir: Path, filename: str, scope: str, task_id: str, worktree: Path) -> None:
     lock_dir = state_dir / "locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
     (lock_dir / filename).write_text(
         "\n".join(
             [
-                f"owner={owner}",
                 f"scope={scope}",
                 f"task_id={task_id}",
                 f"worktree={worktree}",
@@ -87,7 +86,6 @@ def _write_lock(state_dir: Path, filename: str, owner: str, scope: str, task_id:
 def _write_pid(
     state_dir: Path,
     filename: str,
-    owner: str,
     scope: str,
     task_id: str,
     pid: int,
@@ -101,7 +99,6 @@ def _write_pid(
     (orch_dir / filename).write_text(
         "\n".join(
             [
-                f"owner={owner}",
                 f"scope={scope}",
                 f"task_id={task_id}",
                 f"pid={pid}",
@@ -171,16 +168,17 @@ class EngineReadyTests(unittest.TestCase):
                     ("T1-002", "deps blocked", "T1-001", "", "TODO"),
                     ("T1-003", "ready task", "-", "", "TODO"),
                     ("T1-004", "stale metadata", "-", "", "TODO"),
+                    ("T1-005", "planning task", "-", "", "PLAN"),
                 ],
             )
-            _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004"])
+            _write_specs(repo_root, ["T1-001", "T1-002", "T1-003", "T1-004", "T1-005"])
 
             state_dir = repo_root / ".codex-tasks"
-            _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T1-001", repo_root)
-            _write_pid(state_dir, "worker-active.pid", "AgentA", "app-shell", "T1-001", os.getpid(), repo_root)
+            _write_lock(state_dir, "app-shell.lock", "app-shell", "T1-001", repo_root)
+            _write_pid(state_dir, "worker-active.pid", "app-shell", "T1-001", os.getpid(), repo_root)
 
-            _write_lock(state_dir, "ui-popover.lock", "AgentD", "ui-popover", "T1-004", repo_root)
-            _write_pid(state_dir, "worker-stale.pid", "AgentD", "ui-popover", "T1-004", 99999999, repo_root)
+            _write_lock(state_dir, "ui-popover.lock", "ui-popover", "T1-004", repo_root)
+            _write_pid(state_dir, "worker-stale.pid", "ui-popover", "T1-004", 99999999, repo_root)
 
             payload = _run_engine(repo_root, "ready")
 
@@ -189,6 +187,8 @@ class EngineReadyTests(unittest.TestCase):
 
             self.assertIn("T1-003", ready_ids)
             self.assertIn("T1-004", ready_ids)
+            self.assertNotIn("T1-005", ready_ids)
+            self.assertNotIn("T1-005", excluded)
 
             self.assertEqual(excluded["T1-001"]["reason"], "active_worker")
             self.assertEqual(excluded["T1-001"]["source"], "pid")
@@ -259,11 +259,10 @@ class EngineReadyTests(unittest.TestCase):
             _write_specs(repo_root, ["T6-001"])
 
             state_dir = repo_root / ".codex-tasks"
-            _write_lock(state_dir, "app-shell.lock", "AgentA", "app-shell", "T6-001", repo_root)
+            _write_lock(state_dir, "app-shell.lock", "app-shell", "T6-001", repo_root)
             _write_pid(
                 state_dir,
                 "worker.pid",
-                "AgentA",
                 "app-shell",
                 "T6-001",
                 os.getpid(),

@@ -35,7 +35,7 @@ for i in $(seq 1 20); do
     if (
       cd "$WORKTREE" &&
       AI_STATE_DIR="$STATE_DIR" \
-      "$CLI" --repo "$WORKTREE" --state-dir "$STATE_DIR" task lock "agent-$i" "101" --branch "main"
+      "$CLI" --repo "$WORKTREE" --state-dir "$STATE_DIR" task lock "101" --branch "main"
     ) >"$out_file" 2>&1; then
       echo "ok" > "$status_file"
     else
@@ -82,12 +82,12 @@ if [[ ! -f "$LOCK_FILE" ]]; then
   exit 1
 fi
 
-owner="$(awk -F'=' '$1=="owner"{print $2; exit}' "$LOCK_FILE")"
+scope="$(awk -F'=' '$1=="scope"{print $2; exit}' "$LOCK_FILE")"
 task_id="$(awk -F'=' '$1=="task_id"{print $2; exit}' "$LOCK_FILE")"
 created_at="$(awk -F'=' '$1=="created_at"{print $2; exit}' "$LOCK_FILE")"
 
-if [[ -z "$owner" ]]; then
-  echo "owner field is empty"
+if [[ -z "$scope" ]]; then
+  echo "scope field is empty"
   cat "$LOCK_FILE"
   exit 1
 fi

@@ -46,7 +46,7 @@ cat > "$REPO/.codex-tasks/planning/TODO.md" <<'EOF'
 
 | ID | Branch | Title | Deps | Notes | Status |
 |---|---|---|---|---|---|
-| T8-001 |  | Launch worker | - | launch smoke | TODO |
+| T8-001 | release/1.1-docs | Launch worker | - | launch smoke | TODO |
 EOF
 git -C "$REPO" add -f .codex-tasks/planning/TODO.md
 git -C "$REPO" commit -q -m "chore: seed todo"
@@ -60,7 +60,7 @@ echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 echo "$RUN_OUT" | grep -q "Launched codex worker: task=T8-001"
 
-PID_META="$REPO/.codex-tasks/orchestrator/t8-001.pid"
+PID_META="$REPO/.codex-tasks/orchestrator/release-1.1-docs--t8-001.pid"
 if [[ ! -f "$PID_META" ]]; then
   echo "missing pid metadata: $PID_META"
   exit 1
@@ -83,6 +83,11 @@ grep -q '^task_id=T8-001$' "$PID_META"
 SESSION="$(awk -F'=' '$1=="tmux_session"{print $2}' "$PID_META" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 if [[ -z "$SESSION" || "$SESSION" == "N/A" ]]; then
   echo "missing tmux session in metadata: $SESSION"
+  exit 1
+fi
+
+if [[ "$SESSION" == *.* ]]; then
+  echo "tmux session should not contain dots: $SESSION"
   exit 1
 fi
 

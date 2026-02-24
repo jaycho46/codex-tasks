@@ -41,15 +41,15 @@ echo "$RUN1"
 echo "$RUN1" | grep -q "Started tasks: 1"
 echo "$RUN1" | grep -q "T1-002 .*reason=deps_not_ready"
 
-WT_A="$TMP_DIR/repo-worktrees/repo-agenta-t1-001"
+WT_A="$TMP_DIR/repo-worktrees/repo-t1-001"
 if [[ ! -d "$WT_A" ]]; then
-  echo "missing AgentA worktree: $WT_A"
+  echo "missing task worktree: $WT_A"
   exit 1
 fi
 
 # Simulate task completion from agent worktree context.
-$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "done in smoke"
-$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task unlock AgentA T1-001
+$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task update T1-001 DONE "done in smoke"
+$CLI --repo "$WT_A" --state-dir "$REPO/.codex-tasks" task unlock T1-001
 
 # Source-of-truth for scheduler is the primary repo TODO board.
 # Simulate merge/finish by reflecting T1-001 DONE on main TODO.
@@ -83,6 +83,6 @@ STATUS_OUT="$($CLI --repo "$REPO" status --trigger smoke-after-done-second)"
 echo "$STATUS_OUT"
 
 echo "$STATUS_OUT" | grep -q "Runtime: total=1 active=1 stale=0"
-echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 agent=AgentA task=T1-002"
+echo "$STATUS_OUT" | grep -q "\[LOCK\] scope=task-t1-002 task=T1-002"
 
 echo "run start after done smoke test passed"

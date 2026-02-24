@@ -45,7 +45,7 @@ RUN1="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-merge-worktr
 echo "$RUN1"
 echo "$RUN1" | grep -q "Started tasks: 1"
 
-WT1="$TMP_DIR/repo-worktrees/repo-agenta-release-t1-001"
+WT1="$TMP_DIR/repo-worktrees/repo-release-t1-001"
 if [[ ! -d "$WT1" ]]; then
   echo "missing first worktree: $WT1"
   exit 1
@@ -54,9 +54,9 @@ fi
 echo "task 1 deliverable" > "$WT1/task-1.txt"
 git -C "$WT1" add task-1.txt
 git -C "$WT1" commit -q -m "feat: deliver T1-001"
-"$CLI" --repo "$WT1" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "done t1"
+"$CLI" --repo "$WT1" --state-dir "$REPO/.codex-tasks" task update T1-001 DONE "done t1"
 
-COMPLETE1="$("$CLI" --repo "$WT1" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-001 --summary "done t1" --no-run-start)"
+COMPLETE1="$("$CLI" --repo "$WT1" --state-dir "$REPO/.codex-tasks" task complete T1-001 --summary "done t1" --no-run-start)"
 echo "$COMPLETE1"
 echo "$COMPLETE1" | grep -q "Keeping merge worktree for continuing ready tasks on branch: release"
 
@@ -74,7 +74,7 @@ RUN2="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-merge-worktr
 echo "$RUN2"
 echo "$RUN2" | grep -q "Started tasks: 1"
 
-WT2="$TMP_DIR/repo-worktrees/repo-agenta-release-t1-002"
+WT2="$TMP_DIR/repo-worktrees/repo-release-t1-002"
 if [[ ! -d "$WT2" ]]; then
   echo "missing second worktree: $WT2"
   exit 1
@@ -83,9 +83,9 @@ fi
 echo "task 2 deliverable" > "$WT2/task-2.txt"
 git -C "$WT2" add task-2.txt
 git -C "$WT2" commit -q -m "feat: deliver T1-002"
-"$CLI" --repo "$WT2" --state-dir "$REPO/.codex-tasks" task update AgentA T1-002 DONE "done t2"
+"$CLI" --repo "$WT2" --state-dir "$REPO/.codex-tasks" task update T1-002 DONE "done t2"
 
-COMPLETE2="$("$CLI" --repo "$WT2" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-002 --summary "done t2" --no-run-start)"
+COMPLETE2="$("$CLI" --repo "$WT2" --state-dir "$REPO/.codex-tasks" task complete T1-002 --summary "done t2" --no-run-start)"
 echo "$COMPLETE2"
 echo "$COMPLETE2" | grep -q "Removed temporary merge worktree:"
 

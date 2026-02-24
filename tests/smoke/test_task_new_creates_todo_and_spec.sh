@@ -43,20 +43,42 @@ echo "$OUT_NEW"
 echo "$OUT_NEW" | grep -q "Added task to TODO board: 321"
 echo "$OUT_NEW" | grep -q "Created task: branch=$BASE_BRANCH id=321"
 
-grep -q "| 321 | $BASE_BRANCH | New task summary | 320 |  | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| 321 | $BASE_BRANCH | New task summary | 320 |  | PLAN |" "$REPO/.codex-tasks/planning/TODO.md"
 test -f "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Goal$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## In Scope$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Acceptance Criteria$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 grep -q "^## Subtasks$" "$REPO/.codex-tasks/planning/specs/$BASE_BRANCH/321.md"
 
-OUT_READY="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new --max-start 0)"
-echo "$OUT_READY"
-echo "$OUT_READY" | grep -q "\[DRY-RUN\].*321"
-echo "$OUT_READY" | grep -q "Started tasks: 1"
+OUT_READY_PLAN="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new-plan --max-start 0)"
+echo "$OUT_READY_PLAN"
+echo "$OUT_READY_PLAN" | grep -q "Started tasks: 0"
+if echo "$OUT_READY_PLAN" | grep -q "\[DRY-RUN\].*321"; then
+  echo "PLAN task must not be scheduled before promote"
+  exit 1
+fi
+
+OUT_PROMOTE="$("$CLI" --repo "$REPO" task promote 321 --branch "$BASE_BRANCH")"
+echo "$OUT_PROMOTE"
+echo "$OUT_PROMOTE" | grep -q "Promoted task: task=321 branch=$BASE_BRANCH status=TODO"
+
+OUT_READY_PROMOTED="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new-promoted --max-start 0)"
+echo "$OUT_READY_PROMOTED"
+echo "$OUT_READY_PROMOTED" | grep -q "\[DRY-RUN\].*321"
+echo "$OUT_READY_PROMOTED" | grep -q "Started tasks: 1"
+
+OUT_TODO="$("$CLI" --repo "$REPO" task new 322 --branch "$BASE_BRANCH" --deps 320 --status TODO "Compat TODO task")"
+echo "$OUT_TODO"
+echo "$OUT_TODO" | grep -q "Added task to TODO board: 322"
+grep -q "| 322 | $BASE_BRANCH | Compat TODO task | 320 |  | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+
+OUT_READY_COMPAT="$("$CLI" --repo "$REPO" run start --dry-run --trigger smoke-task-new-compat --max-start 0)"
+echo "$OUT_READY_COMPAT"
+echo "$OUT_READY_COMPAT" | grep -q "\[DRY-RUN\].*322"
+echo "$OUT_READY_COMPAT" | grep -q "Started tasks: 2"
 
 BAD_DEPS_OUT="$TMP_DIR/task-new-bad-deps.out"
-if "$CLI" --repo "$REPO" task new 322 --branch "$BASE_BRANCH" --deps invalid-dep "bad deps" >"$BAD_DEPS_OUT" 2>&1; then
+if "$CLI" --repo "$REPO" task new 323 --branch "$BASE_BRANCH" --deps invalid-dep "bad deps" >"$BAD_DEPS_OUT" 2>&1; then
   echo "invalid deps task creation should fail"
   cat "$BAD_DEPS_OUT"
   exit 1
@@ -75,7 +97,7 @@ OUT_DUP_OK="$("$CLI" --repo "$REPO" task new 321 --branch "$OTHER_BRANCH" --deps
 echo "$OUT_DUP_OK"
 echo "$OUT_DUP_OK" | grep -q "Added task to TODO board: 321"
 echo "$OUT_DUP_OK" | grep -q "Created task: branch=$OTHER_BRANCH id=321"
-grep -q "| 321 | $OTHER_BRANCH | Same id on another branch | $BASE_BRANCH:320 |  | TODO |" "$REPO/.codex-tasks/planning/TODO.md"
+grep -q "| 321 | $OTHER_BRANCH | Same id on another branch | $BASE_BRANCH:320 |  | PLAN |" "$REPO/.codex-tasks/planning/TODO.md"
 test -f "$REPO/.codex-tasks/planning/specs/$OTHER_BRANCH/321.md"
 if grep -q "^owner=" "$REPO/.codex-tasks/planning/specs/$OTHER_BRANCH/321.md"; then
   echo "owner metadata should not be present in scaffolded specs"

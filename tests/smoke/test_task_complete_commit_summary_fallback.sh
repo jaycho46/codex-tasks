@@ -34,7 +34,7 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-summary-f
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT="$TMP_DIR/repo-worktrees/repo-agenta-t7-001"
+WT="$TMP_DIR/repo-worktrees/repo-t7-001"
 if [[ ! -d "$WT" ]]; then
   echo "missing worktree: $WT"
   exit 1
@@ -43,9 +43,9 @@ fi
 echo "done" > "$WT/agent-output.txt"
 git -C "$WT" add agent-output.txt
 git -C "$WT" commit -q -m "feat: complete T7-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T7-001 DONE "Meaningful summary title"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update T7-001 DONE "Meaningful summary title"
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T7-001 --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete T7-001 --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T7-001"
 

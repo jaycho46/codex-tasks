@@ -24,13 +24,11 @@ EOF
 
 mkdir -p "$REPO/.codex-tasks/locks" "$REPO/.codex-tasks/orchestrator"
 cat > "$REPO/.codex-tasks/locks/app-shell.lock" <<EOF
-owner=AgentA
 scope=app-shell
 task_id=T1-001
 worktree=$REPO
 EOF
 cat > "$REPO/.codex-tasks/orchestrator/worker.pid" <<EOF
-owner=AgentA
 scope=app-shell
 task_id=T1-001
 pid=$$

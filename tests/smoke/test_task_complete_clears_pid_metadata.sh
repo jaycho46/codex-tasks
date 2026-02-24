@@ -34,7 +34,7 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-complete-
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT="$TMP_DIR/repo-worktrees/repo-agenta-t3-001"
+WT="$TMP_DIR/repo-worktrees/repo-t3-001"
 if [[ ! -d "$WT" ]]; then
   echo "missing worktree: $WT"
   exit 1
@@ -43,13 +43,12 @@ fi
 echo "done" > "$WT/agent-output.txt"
 git -C "$WT" add agent-output.txt
 git -C "$WT" commit -q -m "feat: complete T3-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T3-001 DONE "done"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update T3-001 DONE "done"
 
 PID_META="$REPO/.codex-tasks/orchestrator/t3-001.pid"
 cat > "$PID_META" <<'EOF'
 pid=999999
 task_id=T3-001
-owner=AgentA
 scope=task-t3-001
 worktree=/tmp/non-existent
 started_at=2026-01-01T00:00:00Z
@@ -65,7 +64,7 @@ if [[ ! -f "$PID_META" ]]; then
   exit 1
 fi
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T3-001 --summary \"done\" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete T3-001 --summary \"done\" --no-run-start)"
 echo "$COMPLETE_OUT"
 echo "$COMPLETE_OUT" | grep -q "Task completion flow finished: task=T3-001"
 echo "$COMPLETE_OUT" | grep -q "Removed pid metadata for task=T3-001"

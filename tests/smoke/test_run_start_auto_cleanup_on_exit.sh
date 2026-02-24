@@ -58,8 +58,8 @@ echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
 PID_META="$REPO/.codex-tasks/orchestrator/t9-301.pid"
 LOCK_FILE="$REPO/.codex-tasks/locks/task-t9-301.lock"
-WT_PATH="$TMP_DIR/repo-worktrees/repo-agenta-t9-301"
-BRANCH_NAME="codex/agenta-t9-301"
+WT_PATH="$TMP_DIR/repo-worktrees/repo-t9-301"
+BRANCH_NAME="codex/t9-301"
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   pid_missing=0

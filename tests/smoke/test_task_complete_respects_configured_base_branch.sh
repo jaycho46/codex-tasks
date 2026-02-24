@@ -48,13 +48,13 @@ RUN_OUT="$("$CLI" --repo "$REPO" run start --no-launch --trigger smoke-base-bran
 echo "$RUN_OUT"
 echo "$RUN_OUT" | grep -q "Started tasks: 1"
 
-WT="$TMP_DIR/repo-worktrees/repo-agenta-t1-001"
+WT="$TMP_DIR/repo-worktrees/repo-t1-001"
 if [[ ! -d "$WT" ]]; then
   echo "missing worktree: $WT"
   exit 1
 fi
 
-BRANCH_NAME="codex/agenta-t1-001"
+BRANCH_NAME="codex/t1-001"
 TASK_TIP="$(git -C "$REPO" rev-parse "$BRANCH_NAME")"
 RELEASE_SHA="$(git -C "$REPO" rev-parse release)"
 BRANCH_BASE_SHA="$(git -C "$REPO" merge-base "$BRANCH_NAME" release)"
@@ -66,12 +66,12 @@ fi
 echo "task deliverable" > "$WT/task-output.txt"
 git -C "$WT" add task-output.txt
 git -C "$WT" commit -q -m "feat: deliver T1-001"
-"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update AgentA T1-001 DONE "done on release flow"
+"$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task update T1-001 DONE "done on release flow"
 
 # User can still switch away before completion; completion must honor configured base branch.
 git -C "$REPO" checkout -q main
 
-COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete AgentA T1-001 --summary "done on release flow" --no-run-start)"
+COMPLETE_OUT="$("$CLI" --repo "$WT" --state-dir "$REPO/.codex-tasks" task complete T1-001 --summary "done on release flow" --no-run-start)"
 echo "$COMPLETE_OUT"
 if ! echo "$COMPLETE_OUT" | grep -q -- "-> release"; then
   echo "task complete should merge into configured base branch release"

@@ -37,7 +37,7 @@ git -C "$REPO" add -f .codex-tasks/planning/specs
 git -C "$REPO" commit -q -m "chore: scaffold task specs"
 
 WT_PARENT="$TMP_DIR/repo-worktrees"
-STALE_WT="$WT_PARENT/repo-agenta-t9-101"
+STALE_WT="$WT_PARENT/repo-t9-101"
 mkdir -p "$STALE_WT/.build"
 echo "stale" > "$STALE_WT/.build/stale-marker.txt"
 
