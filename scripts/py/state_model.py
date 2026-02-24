@@ -54,6 +54,32 @@ def is_pid_alive(pid_value: str) -> bool:
         return False
 
 
+def _has_owner_key(file_path: Path) -> bool:
+    if not file_path.exists() or not file_path.is_file():
+        return False
+    try:
+        for line in file_path.read_text(encoding="utf-8").splitlines():
+            if "=" not in line:
+                continue
+            key, _ = line.split("=", 1)
+            if key.strip() == "owner":
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def legacy_owner_metadata_files(orch_dir: str | Path, lock_dir: str | Path) -> list[str]:
+    files: list[str] = []
+    for base, pattern in ((Path(lock_dir), "*.lock"), (Path(orch_dir), "*.pid")):
+        if not base.exists():
+            continue
+        for meta in sorted(base.glob(pattern)):
+            if _has_owner_key(meta):
+                files.append(str(meta))
+    return files
+
+
 def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
     base = Path(orch_dir)
     rows: list[dict[str, Any]] = []
@@ -66,7 +92,6 @@ def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
         task_id = read_field(pid_meta, "task_id")
         task_branch = read_field(pid_meta, "task_branch")
         task_key = read_field(pid_meta, "task_key")
-        owner = read_field(pid_meta, "owner")
         scope = read_field(pid_meta, "scope")
         pid = read_field(pid_meta, "pid")
         worktree = read_field(pid_meta, "worktree")
@@ -83,7 +108,6 @@ def load_pid_inventory(orch_dir: str | Path) -> list[dict[str, Any]]:
                 "task_id": task_id,
                 "task_branch": task_branch,
                 "task_key": key,
-                "owner": owner,
                 "scope": scope,
                 "pid": pid,
                 "pid_file": str(pid_meta),
@@ -106,20 +130,18 @@ def load_lock_inventory(lock_dir: str | Path) -> list[dict[str, Any]]:
         task_id = read_field(lock_meta, "task_id")
         task_branch = read_field(lock_meta, "task_branch")
         task_key = read_field(lock_meta, "task_key")
-        owner = read_field(lock_meta, "owner")
         scope = read_field(lock_meta, "scope")
         worktree = read_field(lock_meta, "worktree")
 
         key = task_key if task_key else _task_key(task_id, task_branch)
         if not key:
-            key = f"LOCKONLY:{scope}:{owner}:{lock_meta.name}"
+            key = f"LOCKONLY:{scope}:{lock_meta.name}"
         rows.append(
             {
                 "key": key,
                 "task_id": task_id,
                 "task_branch": task_branch,
                 "task_key": key,
-                "owner": owner,
                 "scope": scope,
                 "lock_file": str(lock_meta),
                 "worktree": worktree,
@@ -146,7 +168,6 @@ def classify_records(pid_rows: list[dict[str, Any]], lock_rows: list[dict[str, A
         task_id = pid_row.get("task_id") or lock_row.get("task_id") or key
         task_branch = pid_row.get("task_branch") or lock_row.get("task_branch") or ""
         task_key = pid_row.get("task_key") or lock_row.get("task_key") or _task_key(str(task_id), str(task_branch)) or key
-        owner = pid_row.get("owner") or lock_row.get("owner") or ""
         scope = pid_row.get("scope") or lock_row.get("scope") or ""
         worktree = pid_row.get("worktree") or lock_row.get("worktree") or ""
 
@@ -188,7 +209,6 @@ def classify_records(pid_rows: list[dict[str, Any]], lock_rows: list[dict[str, A
                 "task_id": task_id,
                 "task_branch": task_branch,
                 "task_key": task_key,
-                "owner": owner,
                 "scope": scope,
                 "state": state,
                 "pid": int(pid) if pid.isdigit() else None,

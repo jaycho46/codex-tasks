@@ -37,25 +37,20 @@ read_field() {
   awk -F'=' -v k="$key" '$1 == k {sub(/^[[:space:]]+/, "", $2); print $2; exit}' "$file"
 }
 
-normalize_agent_name() {
-  local agent="${1:-}"
-  echo "$agent" | sed -E 's/[[:space:]]+//g'
-}
-
 ensure_updates_file() {
   mkdir -p "$STATE_DIR"
   if [[ ! -f "$UPDATES_FILE" ]]; then
     cat > "$UPDATES_FILE" <<'EOF'
 # Latest Updates
 
-| Timestamp (UTC) | Agent | Task | Status | Summary |
+| Timestamp (UTC) | Source | Task | Status | Summary |
 |---|---|---|---|---|
 EOF
   fi
 }
 
 append_update_log() {
-  local agent="${1:-}"
+  local source="${1:-}"
   local task_id="${2:-}"
   local status="${3:-}"
   local summary="${4:-}"
@@ -63,7 +58,7 @@ append_update_log() {
 
   ensure_updates_file
   esc_summary="$(echo "$summary" | sed 's/|/\\|/g')"
-  echo "| $(timestamp_utc) | $agent | $task_id | $status | $esc_summary |" >> "$UPDATES_FILE"
+  echo "| $(timestamp_utc) | $source | $task_id | $status | $esc_summary |" >> "$UPDATES_FILE"
 }
 
 is_valid_status() {

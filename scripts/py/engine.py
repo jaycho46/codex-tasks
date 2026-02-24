@@ -135,13 +135,13 @@ def cmd_paths(args: argparse.Namespace) -> None:
     print(json.dumps(ctx, ensure_ascii=False, indent=2))
 
 
-def _task_agent_and_scope(task_id: str, task_branch: str = "") -> tuple[str, str]:
+def _task_scope(task_id: str, task_branch: str = "") -> str:
     composite = f"{task_branch}-{task_id}" if task_branch else task_id
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in composite.strip())
     while "--" in slug:
         slug = slug.replace("--", "-")
     slug = slug.strip("-") or "task"
-    return ("AgentA", f"task-{slug}")
+    return f"task-{slug}"
 
 
 def _active_maps(records: list[dict[str, Any]]) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
@@ -198,7 +198,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "task_id": lock.get("task_id", ""),
                 "task_branch": lock.get("task_branch", ""),
                 "task_key": lock.get("task_key", lock.get("key", "")),
-                "owner": lock.get("owner", ""),
                 "scope": lock.get("scope", ""),
             }
         )
@@ -217,7 +216,7 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
         task_branch = str(task.get("branch") or "")
         task_key = make_task_key(task_id, task_branch)
         task_base_branch = task_branch or ctx["base_branch"]
-        agent, scope = _task_agent_and_scope(task_id, task_branch)
+        scope = _task_scope(task_id, task_branch)
 
         if task_key in conflict_by_task:
             excluded_tasks.append(
@@ -226,7 +225,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "task_branch": task_branch,
                     "task_key": task_key,
                     "title": task["title"],
-                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -244,7 +242,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "task_branch": task_branch,
                     "task_key": task_key,
                     "title": task["title"],
-                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -264,7 +261,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "task_branch": task_branch,
                     "task_key": task_key,
                     "title": task["title"],
-                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -280,7 +276,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "task_branch": task_branch,
                     "task_key": task_key,
                     "title": task["title"],
-                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -297,7 +292,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "task_branch": task_branch,
                     "task_key": task_key,
                     "title": task["title"],
-                    "owner": agent,
                     "scope": scope,
                     "deps": task["deps"],
                     "status": task["status"],
@@ -314,7 +308,6 @@ def _ready_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "task_key": task_key,
                 "base_branch": task_base_branch,
                 "title": task["title"],
-                "owner": agent,
                 "scope": scope,
                 "deps": task["deps"],
                 "status": task["status"],
@@ -359,7 +352,6 @@ def cmd_ready(args: argparse.Namespace) -> None:
                         f(task.get("task_branch", "")),
                         f(task.get("base_branch", "")),
                         f(task.get("title", "")),
-                        f(task.get("owner", "")),
                         f(task.get("scope", "")),
                         f(task.get("deps", "")),
                         f(task.get("status", "")),
@@ -405,7 +397,6 @@ def cmd_inventory(args: argparse.Namespace) -> None:
                         row["task_id"],
                         str(row.get("task_branch") or ""),
                         str(row.get("task_key") or row.get("key") or ""),
-                        row["owner"],
                         row["scope"],
                         row["state"],
                         str(row["pid"] or ""),
@@ -510,7 +501,7 @@ def _updates_payload(args: argparse.Namespace, limit: int = 200) -> dict[str, An
             entries.append(
                 {
                     "timestamp": cells[0],
-                    "agent": cells[1],
+                    "source": cells[1],
                     "task_id": cells[2],
                     "status": cells[3],
                     "summary": cells[4],
@@ -636,7 +627,7 @@ def _render_status_text(payload: dict[str, Any]) -> str:
         if task_branch:
             task_label = f"{task_branch}:{task_label}"
         lines.append(
-            f"  [LOCK] scope={lock.get('scope', '')} agent={lock.get('owner', '')} task={task_label}")
+            f"  [LOCK] scope={lock.get('scope', '')} task={task_label}")
 
     return "\n".join(lines)
 
@@ -876,7 +867,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
         def __init__(self, worker: dict[str, Any]) -> None:
             super().__init__()
             self.worker = worker
-            self.owner = str(worker.get("owner") or "").strip() or "N/A"
+            self.scope = str(worker.get("scope") or "").strip() or "N/A"
             self.task_id = str(worker.get("task_id") or "").strip() or "N/A"
             self.pid = str(worker.get("pid") or "").strip() or "N/A"
             self.launch_backend = str(worker.get("launch_backend") or "").strip().lower()
@@ -906,7 +897,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             view_display = self.view_mode
             auto_scroll_display = "ON" if self.auto_scroll_enabled else "OFF"
             return (
-                f"Agent: {self.owner}\n"
+                f"Scope: {self.scope}\n"
                 f"Task: {self.task_id}\n"
                 f"PID: {self.pid}\n"
                 f"Backend: {backend_display}\n"
@@ -1484,7 +1475,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             self.last_action: str = ""
             self.refresh_in_flight = False
             self.active_bottom_tab = "tasks_tab"
-            self.running_worker_index: dict[tuple[str, str, str], dict[str, Any]] = {}
+            self.running_worker_index: dict[tuple[str, str], dict[str, Any]] = {}
             self.agent_modal_open = False
 
         def compose(self) -> ComposeResult:
@@ -1561,6 +1552,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             return f"...{value[-(keep - 3):]}"
 
         STATUS_TONES: dict[str, str] = {
+            "PLAN": "bright_blue",
             "TODO": "cyan",
             "IN_PROGRESS": "yellow",
             "BLOCKED": "red",
@@ -1679,6 +1671,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             task_ids_in_board: set[str] = set()
             effective_status_counts: dict[str, int] = {
                 "DONE": 0,
+                "PLAN": 0,
                 "TODO": 0,
                 "BLOCKED": 0,
                 "IN_PROGRESS": 0,
@@ -1714,6 +1707,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ready_count = int(scheduler.get("summary", {}).get("ready", 0))
             locks_count = int(coordination.get("summary", {}).get("locks", 0))
             done_count = int(effective_status_counts.get("DONE", 0))
+            plan_count = int(effective_status_counts.get("PLAN", 0))
             todo_count = int(effective_status_counts.get("TODO", 0))
             blocked_count = int(effective_status_counts.get("BLOCKED", 0))
             in_progress_count = int(effective_status_counts.get("IN_PROGRESS", 0))
@@ -1725,6 +1719,8 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             status_remaining = max(
                 0, status_total - ready_count - running_agents_count)
             done_ratio = (done_count / tasks_total *
+                          100.0) if tasks_total > 0 else 0.0
+            plan_ratio = (plan_count / tasks_total *
                           100.0) if tasks_total > 0 else 0.0
             todo_ratio = (todo_count / tasks_total *
                           100.0) if tasks_total > 0 else 0.0
@@ -1743,6 +1739,8 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 [
                     ("◼", done_count, self._status_style(
                         "DONE", bold=True, dim=True)),
+                    ("◼", plan_count, self._status_style(
+                        "PLAN", bold=True, dim=True)),
                     ("◼", todo_count, self._status_style(
                         "TODO", bold=True, dim=True)),
                     ("◼", in_progress_count, self._status_style(
@@ -1755,11 +1753,10 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             for lock in active_locks:
                 task_id = str(lock.get("task_id", "")).strip() or "N/A"
                 task_branch = str(lock.get("task_branch", "")).strip()
-                agent = str(lock.get("owner", "")).strip()
                 scope = str(lock.get("scope", "")).strip()
                 suffix = ""
-                if agent or scope:
-                    suffix = f"@{agent}/{scope}".rstrip("/")
+                if scope:
+                    suffix = f"@{scope}"
                 task_label = f"{task_branch}:{task_id}" if task_branch else task_id
                 lock_labels.append(f"{task_label}{suffix}")
             locks_joined = self._compact_text(
@@ -1795,6 +1792,11 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             tasks_line.append(
                 f"done={done_count}",
                 style=self._status_style("DONE", bold=False, dim=True),
+            )
+            tasks_line.append(", ", style="dim")
+            tasks_line.append(
+                f"plan={plan_count}",
+                style=self._status_style("PLAN", bold=False, dim=True),
             )
             tasks_line.append(", ", style="dim")
             tasks_line.append(
@@ -1861,37 +1863,31 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 ready_rows.append(
                     (
                         self._task_display_label(item.get("task_id", ""), item.get("task_branch", "")),
-                        str(item.get("owner", "")),
                         str(item.get("scope", "")),
                         str(item.get("deps", "")),
                     )
                 )
-            self._fill_table(ready_table, ready_rows,
-                             ("-", "-", "-", "-"), key_columns=(0,))
+            self._fill_table(ready_table, ready_rows, ("-", "-", "-"), key_columns=(0,))
 
             agents_table = self.query_one("#agents_table", DataTable)
             active_agents: list[tuple[Any, ...]] = []
-            worker_index: dict[tuple[str, str, str], dict[str, Any]] = {}
+            worker_index: dict[tuple[str, str], dict[str, Any]] = {}
             for worker in running_workers:
-                owner = str(worker.get("owner", ""))
                 task_id = str(worker.get("task_id", ""))
                 task_branch = str(worker.get("task_branch", ""))
                 task_label = self._task_display_label(task_id, task_branch)
                 pid = str(worker.get("pid", "") or "")
                 active_agents.append(
                     (
-                        owner,
                         task_label,
                         self._status_cell("IN_PROGRESS"),
                         pid,
                     )
                 )
-                worker_index[(owner, task_label, pid)] = worker
-            active_agents.sort(key=lambda row: (
-                row[0], row[1], str(row[2]), row[3]))
+                worker_index[(task_label, pid)] = worker
+            active_agents.sort(key=lambda row: (row[0], str(row[1]), row[2]))
             self.running_worker_index = worker_index
-            self._fill_table(agents_table, active_agents,
-                             ("-", "-", "-", "-"), key_columns=(0, 1, 3))
+            self._fill_table(agents_table, active_agents, ("-", "-", "-"), key_columns=(0, 2))
 
             task_table = self.query_one("#task_table", DataTable)
             task_rows: list[tuple[Any, ...]] = []
@@ -1931,7 +1927,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             log_rows = [
                 (
                     str(entry.get("timestamp", "")),
-                    str(entry.get("agent", "")),
+                    str(entry.get("source", "")),
                     str(entry.get("task_id", "")),
                     self._status_cell(str(entry.get("status", ""))),
                     str(entry.get("summary", "")),
@@ -1947,7 +1943,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             )
             if self.active_bottom_tab == "tasks_tab":
                 subtitle = f"{subtitle} | Enter: open task spec"
-            subtitle = f"{subtitle} | Running Agents Enter/Click: session overlay"
+            subtitle = f"{subtitle} | Running Workers Enter/Click: session overlay"
             if self.last_error:
                 subtitle = f"{subtitle} | Last refresh failed"
             self.sub_title = subtitle
@@ -2057,12 +2053,11 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
                 row = agents_table.get_row_at(agents_table.cursor_row)
             except Exception:
                 return None
-            owner = str(row[0] if row else "").strip()
-            task_id = str(row[1] if row else "").strip()
-            pid = str(row[3] if row else "").strip()
-            if not owner or owner == "-" or not task_id or task_id == "-":
+            task_id = str(row[0] if row else "").strip()
+            pid = str(row[2] if row else "").strip()
+            if not task_id or task_id == "-":
                 return None
-            return self.running_worker_index.get((owner, task_id, pid))
+            return self.running_worker_index.get((task_id, pid))
 
         def _open_agent_session(self, worker: dict[str, Any]) -> None:
             if self.agent_modal_open:
@@ -2160,14 +2155,14 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             ready_table.border_subtitle = "dependency-cleared queue"
             ready_table.zebra_stripes = True
             ready_table.cursor_type = "row"
-            ready_table.add_columns("Task", "Agent", "Scope", "Deps")
+            ready_table.add_columns("Task", "Scope", "Deps")
 
             agents_table = self.query_one("#agents_table", DataTable)
             agents_table.border_title = "Running Agents"
             agents_table.border_subtitle = "active worker processes"
             agents_table.zebra_stripes = True
             agents_table.cursor_type = "row"
-            agents_table.add_columns("Agent", "Task", "State", "PID")
+            agents_table.add_columns("Task", "State", "PID")
 
             task_table = self.query_one("#task_table", DataTable)
             task_table.zebra_stripes = True
@@ -2177,7 +2172,7 @@ def _run_status_tui(args: argparse.Namespace, initial_payload: dict[str, Any]) -
             log_table = self.query_one("#log_table", DataTable)
             log_table.zebra_stripes = True
             log_table.cursor_type = "row"
-            log_table.add_columns("Timestamp (UTC)", "Agent",
+            log_table.add_columns("Timestamp (UTC)", "Source",
                                   "Task", "Status", "Summary")
 
             self.last_payload_signature = self._payload_signature(
@@ -2307,7 +2302,6 @@ def cmd_select_stop(args: argparse.Namespace) -> None:
                         row["task_id"],
                         str(row.get("task_branch") or ""),
                         str(row.get("task_key") or row.get("key") or ""),
-                        row["owner"],
                         row["scope"],
                         row["state"],
                         str(row["pid"] or ""),
@@ -2338,7 +2332,6 @@ def cmd_select_stale(args: argparse.Namespace) -> None:
                         row["task_id"],
                         str(row.get("task_branch") or ""),
                         str(row.get("task_key") or row.get("key") or ""),
-                        row["owner"],
                         row["scope"],
                         row["state"],
                         str(row["pid"] or ""),

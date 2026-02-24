@@ -25,11 +25,11 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 2. Do not self-start work using `task lock`, `task update`, or `worktree start` as a substitute for scheduler start.
 3. Do not mark a task `DONE` unless task deliverable files were actually added or updated.
 4. Do not finish with generic summaries such as `task complete` or `done`.
-5. Keep work scoped to the assigned task title and owner scope.
+5. Keep work scoped to the assigned task title and task scope.
 6. Do not manually edit lock/pid metadata files.
 7. Commit all tracked deliverable changes before `codex-tasks task complete`, then use `task complete` as the last command for merge/worktree cleanup.
 8. If completion fails due to merge/rebase conflicts, try to resolve conflicts and re-run `task complete`; report `BLOCKED` only if it remains unresolved.
-9. For newly requested tasks, create them with `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] <summary>` and fully populate the generated spec before scheduling.
+9. For newly requested tasks, create them with `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] [--status <PLAN|TODO>] <summary>`. Default status is `PLAN`; promote to `TODO` only after the spec is complete.
 10. Treat TODO/spec planning updates as local workflow state by default; do not create planning-only commits unless the user explicitly requests it.
 
 ## Task Authoring (New Task)
@@ -37,8 +37,9 @@ Before running any workflow command, ensure the `codex-tasks` CLI is installed:
 When asked to create a new task, use this flow:
 
 1. Create task row + spec template in one command:
-   - `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] <summary>`
+   - `codex-tasks task new <task_id> --branch <feature_branch> [--deps <task_id[,task_id...]>] [--status <PLAN|TODO>] <summary>`
    - If the task has prerequisites, pass prerequisite task ids with `--deps` (for example: `--deps 100,099` or `--deps feature/auth:100`).
+   - Default status is `PLAN`. Use `--status TODO` only for compatibility when immediate scheduling is intentionally required.
 2. Confirm the generated spec file exists:
    - `.codex-tasks/planning/specs/<branch>/<task_id>.md`
 3. Fill the generated form completely (do not leave template placeholders):
@@ -48,15 +49,17 @@ When asked to create a new task, use this flow:
      - which tests or checks must run
      - exact command(s) to run
      - expected pass condition/output
-4. Do not create planning-only commits after `task new`; continue to scheduling once spec content is complete, unless the user explicitly requests a commit.
-5. Only start scheduling after spec content is complete:
+4. Promote the task from `PLAN` to `TODO` only after spec content is complete:
+   - `codex-tasks task promote <task_id> --branch <feature_branch>`
+5. Do not create planning-only commits after `task new`; continue to scheduling once spec content is complete, unless the user explicitly requests a commit.
+6. Only start scheduling after promotion:
    - `codex-tasks run start --dry-run`
 
 ## Required Workflow
 
 1. Ensure `codex-tasks` command is available (run CLI bootstrap above if needed).
 2. Start progress tracking:
-   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" IN_PROGRESS "<specific progress>"`
+   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<task_id>" IN_PROGRESS "<specific progress>"`
 3. Implement task deliverables in repository files (not only TODO/status metadata).
 4. Verify changed files include deliverables:
    - `git status --short`
@@ -64,12 +67,12 @@ When asked to create a new task, use this flow:
    - Deliverable commits: `<type>: <summary>` where `<type>` is one of `feat|fix|refactor|docs|test|chore`
    - A single task may include multiple deliverable commits; keep each commit focused and meaningful.
 6. After final verification, mark task DONE with a specific summary:
-   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" DONE "<what was delivered>"`
+   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<task_id>" DONE "<what was delivered>"`
 7. Commit tracked deliverable changes (if any) before completion:
    - `git add <changed-files> && git commit -m "<type>: <summary>"`
    - Do not create empty marker commits just to signal DONE.
 8. As the final command, use task complete for merge and worktree cleanup (or omit summary to use the default completion log text):
-   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task complete "<agent>" "<task_id>" --summary "<what was delivered>"`
+   - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task complete "<task_id>" --summary "<what was delivered>"`
 
 ## Merge Failure Handling
 
@@ -77,5 +80,5 @@ When asked to create a new task, use this flow:
 - If merge/rebase conflicts occur, resolve conflicts in the worktree as much as possible and run `task complete` again.
 - If it still fails after reasonable resolution attempts, do not force status changes.
 - Log blocker:
-  - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<agent>" "<task_id>" BLOCKED "merge conflict: <reason>"`
+  - `codex-tasks --repo "<worktree>" --state-dir "<state_dir>" task update "<task_id>" BLOCKED "merge conflict: <reason>"`
 - Leave task for manual resolution.

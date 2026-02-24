@@ -25,11 +25,19 @@ All notable changes to this project are documented in this file.
 - Init/default planning layout moved under `.codex-tasks/planning`.
   - Default `repo.todo_file`: `.codex-tasks/planning/TODO.md`
   - Default `repo.spec_dir`: `.codex-tasks/planning/specs`
+- Runtime/CLI ownership model is now ownerless (breaking, internal-only rollout).
+  - `task lock/unlock/heartbeat/update/complete` no longer accept `<agent>`.
+  - `worktree create/start` no longer accept `<agent>`.
+  - codex branch/worktree naming now uses task identity only (`codex/<task>` or `codex/<taskBranch>-<task>`).
+  - lock/pid metadata removed `owner` key and validates by `task_key` + current worktree context.
+  - ready/inventory payloads and TSV contracts removed `owner`; updates log column is now `Source`.
+  - Added upgrade guard: commands reject legacy `owner=` metadata and instruct pre-clean (`task stop --all --apply`, `task cleanup-stale --apply`).
 
 ### Tests
 
 - Added status payload and state-model coverage for `launch_backend`/`log_file` fields.
 - Added smoke tests for tmux policy, worker-exit auto-cleanup, and DONE-guard behavior.
+- Added ownerless smoke coverage for CLI-breaking signatures, lock context validation across worktrees, and legacy-owner upgrade guard.
 
 ## v0.1.1 (compared to v0.1.0)
 

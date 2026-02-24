@@ -27,7 +27,7 @@
 
 Use a split workflow:
 
-1. Codex app + `$codex-tasks` skill: create/refine TODO tasks and task specs.
+1. Codex app + `$codex-tasks` skill: create/refine PLAN-gated tasks and task specs.
 2. Terminal + `codex-tasks`: start scheduler, monitor runtime, and control operations.
 
 This keeps planning in the app and orchestration in the terminal.
@@ -84,7 +84,7 @@ Codex app prompt example:
 
 ```text
 $codex-tasks
-Plan authentication work and create an executable TODO list with task specs.
+Plan authentication work and create a PLAN-gated task list with task specs.
 Split work by feature branch,
 and write concrete subtasks for each task spec so delegation can run automatically.
 ```
@@ -133,14 +133,22 @@ Then press `Ctrl+R` in the dashboard to run scheduler start.
 Dashboard operations:
 
 - In the Task table, select a task and press `Enter` to open a spec-detail overlay.
-- In the Running Agents table, select (or click) an agent row to open a session overlay and inspect live execution progress.
+- In the Running Agents table, select (or click) a worker row to open a session overlay and inspect live execution progress.
 - If execution is going wrong, press `Ctrl+E` to stop all active tasks. This runs emergency stop (`task stop --all --apply`), cleans runtime state, and rolls affected tasks back to `TODO`.
 
 ## How It Works
 
 `codex-tasks` uses `.codex-tasks/planning/TODO.md` as a dependency-aware queue and applies a strict task lifecycle.
 
-1. Queue build (`.codex-tasks/planning/TODO.md` -> ready/excluded)
+1. Planning gate (`PLAN -> TODO`)
+
+- `task new` creates rows with `PLAN` status by default.
+- `PLAN` rows are planning-only and never enter scheduler ready/excluded sets.
+- Promote only spec-complete tasks to executable queue:
+  - `codex-tasks task promote <task_id> --branch <base_branch>`
+- Compatibility path: `task new --status TODO` is allowed when immediate queue entry is explicitly required.
+
+2. Queue build (`.codex-tasks/planning/TODO.md` -> ready/excluded)
 
 - Scheduler scans `.codex-tasks/planning/TODO.md` and evaluates only rows with `TODO` status.
 - Each TODO row can carry its own `Branch` (base branch) for worker worktree start.
@@ -152,7 +160,9 @@ Dashboard operations:
 
 ```mermaid
 flowchart LR
-  A[".codex-tasks/planning/TODO.md row (status=TODO)"] --> C{"Active worker/lock/conflict?"}
+  P[".codex-tasks/planning/TODO.md row (status=PLAN)"] --> Q["task promote (spec valid)"]
+  Q --> A[".codex-tasks/planning/TODO.md row (status=TODO)"]
+  A --> C{"Active worker/lock/conflict?"}
   C -- "Yes" --> E["Excluded (active_worker / active_lock / active_signal_conflict)"]
   C -- "No" --> G{"Spec exists + valid?"}
   G -- "No" --> H["Excluded (missing_task_spec / invalid_task_spec)"]
@@ -161,26 +171,26 @@ flowchart LR
   I -- "Yes" --> K["Ready Queue"]
 ```
 
-2. Start phase (`run start`)
+3. Start phase (`run start`)
 
 - Scheduler acquires a run lock to avoid concurrent starts.
 - For each ready task, it creates/starts a dedicated worktree + branch.
 - It writes runtime metadata (lock + pid) and launches a worker (`codex exec`, default backend: `tmux`).
 
-3. Runtime phase
+4. Runtime phase
 
 - Workers execute inside their task worktrees and report progress/status.
 - If specs include `## Subtasks` (scaffolded by default), workers use them for subagent delegation.
 - Dashboard shows the ready queue, running workers, and excluded reasons in one view.
 
-4. Auto cleanup / recovery
+5. Auto cleanup / recovery
 
 - If a worker exits unexpectedly, auto-cleanup runs for that task.
 - It removes stale runtime state (pid/lock/worktree/branch) and rolls the task back to `TODO` unless it is already `DONE`.
 
-5. Completion phase (`task complete`)
+6. Completion phase (`task complete`)
 
-- Completion is accepted only when the task is `DONE`, tracked changes are committed, and lock agent/scope match.
+- Completion is accepted only when the task is `DONE`, tracked changes are committed, and lock metadata matches the current task/worktree context (`task_id`, `task_branch`, `task_key`, `worktree`).
 - `task complete` merges into base branch (default `rebase-then-ff`) via a dedicated merge worktree, serializes concurrent merge attempts, clears runtime metadata, removes worktree/branch, and automatically runs the next scheduler start by default (disable with `--no-run-start`).
 
 Continuous loop view:
@@ -188,7 +198,8 @@ Continuous loop view:
 ```mermaid
 flowchart LR
   subgraph MAIN["Main execution loop"]
-    A["Plan tasks in .codex-tasks/planning (TODO + specs)"] --> B["Run scheduler (Ctrl+R or codex-tasks run start)"]
+    A["Plan tasks in .codex-tasks/planning (PLAN + specs)"] --> A2["Promote execution-ready tasks (PLAN -> TODO)"]
+    A2 --> B["Run scheduler (Ctrl+R or codex-tasks run start)"]
     B --> C["Ready queue selection"]
     C --> D["Worker runs in task worktree"]
     D --> E{"Task outcome"}
@@ -202,6 +213,8 @@ flowchart LR
 ```
 
 Failed tasks re-enter the queue on the next scheduler run.
+
+Ownerless upgrade note (internal): before upgrading from legacy named-owner runtime metadata, run `codex-tasks task stop --all --apply` and `codex-tasks task cleanup-stale --apply` once to clear existing lock/pid state.
 
 ## Docs
 
